@@ -1,0 +1,10 @@
+services:
+  # React Frontend (Static Site)
+  - type: web
+    name: SafeSpeak_Reporting_State_Final
+    env: static
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./dist
+    envVars:
+      - key: VITE_AI_API_URL
+        value: ""  # Optional: set to an external AI service if you have one (not required)
