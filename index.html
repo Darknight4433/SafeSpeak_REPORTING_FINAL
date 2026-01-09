@@ -8,6 +8,48 @@
     <meta name="description" content="SafeSpeak - report and analyze incidents anonymously" />
     <meta name="author" content="SafeSpeak" />
 
+    <!-- DEBUG: Error Logger (Safety Net for White Screens) -->
+    <script>
+      window.addEventListener('error', function(event) {
+        var errorDiv = document.getElementById('debug-error-display');
+        if (!errorDiv) {
+          errorDiv = document.createElement('div');
+          errorDiv.id = 'debug-error-display';
+          errorDiv.style.position = 'fixed';
+          errorDiv.style.top = '0';
+          errorDiv.style.left = '0';
+          errorDiv.style.width = '100%';
+          errorDiv.style.background = '#ffd7d7';
+          errorDiv.style.color = 'red';
+          errorDiv.style.padding = '20px';
+          errorDiv.style.zIndex = '999999';
+          errorDiv.style.fontFamily = 'monospace';
+          errorDiv.style.whiteSpace = 'pre-wrap';
+          document.body.appendChild(errorDiv);
+        }
+        errorDiv.textContent += 'Error: ' + (event.error ? event.error.message : event.message) + '\n';
+      });
+      window.addEventListener('unhandledrejection', function(event) {
+         var errorDiv = document.getElementById('debug-error-display');
+         if (!errorDiv) {
+           errorDiv = document.createElement('div');
+           errorDiv.id = 'debug-error-display';
+           errorDiv.style.position = 'fixed';
+           errorDiv.style.top = '0';
+           errorDiv.style.left = '0';
+           errorDiv.style.width = '100%';
+           errorDiv.style.background = '#ffd7d7';
+           errorDiv.style.color = 'red';
+           errorDiv.style.padding = '20px';
+           errorDiv.style.zIndex = '999999';
+           errorDiv.style.fontFamily = 'monospace';
+           errorDiv.style.whiteSpace = 'pre-wrap';
+           document.body.appendChild(errorDiv);
+         }
+         errorDiv.textContent += 'Promise Error: ' + event.reason + '\n';
+      });
+    </script>
+
     <meta property="og:title" content="SafeSpeak Reporting" />
     <meta property="og:description" content="SafeSpeak - report and analyze incidents anonymously" />
     <meta property="og:type" content="website" />
