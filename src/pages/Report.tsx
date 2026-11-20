@@ -485,7 +485,7 @@ const Report = () => {
       if (saved !== null) {
         setDemoAiEnabled(saved === '1');
       }
-    } catch (e) {}
+    } catch (e) { }
 
     // Check Ollama connection on component mount
     refreshOllamaStatus().then((status) => {
@@ -1559,7 +1559,7 @@ const Report = () => {
                                 checked={demoAiEnabled}
                                 onCheckedChange={(checked) => {
                                   setDemoAiEnabled(checked);
-                                  try { localStorage.setItem('demoAi', checked ? '1' : '0'); } catch (e) {}
+                                  try { localStorage.setItem('demoAi', checked ? '1' : '0'); } catch (e) { }
                                 }}
                               />
                               <label htmlFor="demo-ai-toggle" className="text-xs text-muted-foreground cursor-pointer">
@@ -1609,10 +1609,10 @@ const Report = () => {
                                       liveAiAnalysis.risk_level === 'L3'
                                         ? 'bg-red-600 text-white hover:bg-red-700'
                                         : liveAiAnalysis.risk_level === 'L2'
-                                        ? 'bg-orange-500 text-white hover:bg-orange-600'
-                                        : liveAiAnalysis.risk_level === 'L1'
-                                        ? 'bg-blue-600 text-white hover:bg-blue-700'
-                                        : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                                          ? 'bg-orange-500 text-white hover:bg-orange-600'
+                                          : liveAiAnalysis.risk_level === 'L1'
+                                            ? 'bg-blue-600 text-white hover:bg-blue-700'
+                                            : 'bg-emerald-600 text-white hover:bg-emerald-700'
                                     }
                                   >
                                     Level {liveAiAnalysis.risk_level}
