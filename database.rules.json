@@ -1,0 +1,22 @@
+{
+    "rules": {
+        ".read": false,
+        ".write": false,
+        "reports": {
+            ".read": "auth != null",
+            ".write": true
+        },
+        "higher_authority_reports": {
+            ".read": "auth != null",
+            ".write": true
+        },
+        "reportCounter": {
+            ".read": true,
+            ".write": true
+        },
+        "report_counter": {
+            ".read": true,
+            ".write": true
+        }
+    }
+}
