@@ -42,9 +42,9 @@ const intensityLevels = [
 ];
 
 const formSchema = z.object({
-  category: z.string().min(1, 'Please select a category'),
-  intensity: z.string().min(1, 'Please select an intensity level'),
-  description: z.string().min(10, 'Description must be at least 10 characters'),
+  category: z.string().optional().default('other'),
+  intensity: z.string().optional().default('medium'),
+  description: z.string().min(3, 'Please describe what happened (at least 3 characters)'),
   age: z.string().optional(),
   location: z.string().optional(),
   name: z.string().optional(),
@@ -53,43 +53,7 @@ const formSchema = z.object({
   bullyName: z.string().optional(),
   implicatedName: z.string().optional(),
   isAnonymous: z.boolean().default(false),
-  personType: z.string().optional(), // Student, Teacher, or Staff
-}).superRefine((data, ctx) => {
-  // If not anonymous, reporter name is required
-  if (data.isAnonymous === false && (!data.name || data.name.trim() === '')) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: 'Your name is required when submitting a named report',
-      path: ['name']
-    });
-  }
-
-  // For teacher/staff cases, require the implicated person's name and the reporter's classroom
-  if (data.personType === 'teacher' || data.personType === 'staff') {
-    if (!data.implicatedName || data.implicatedName.trim() === '') {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'Name of the teacher/staff member is required',
-        path: ['implicatedName']
-      });
-    }
-    if (!data.classroom || data.classroom.trim() === '') {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'Class/Section is required for teacher/staff reports',
-        path: ['classroom']
-      });
-    }
-  }
-
-  // Bullying reports involving students should include the bully's name
-  if (data.category === 'bullying' && data.personType !== 'teacher' && data.personType !== 'staff' && (!data.bullyName || data.bullyName.trim() === '')) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "Name of the person bullying is required (enter 'Unknown' if not known)",
-      path: ["bullyName"]
-    });
-  }
+  personType: z.string().optional(),
 });
 
 const Report = () => {
@@ -1069,6 +1033,17 @@ const Report = () => {
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
     setIsSubmitting(true);
 
+    // Auto-fill safe defaults
+    if (!values.name || values.name.trim() === '') {
+      values.isAnonymous = true;
+    }
+    if (!values.category) {
+      values.category = 'other';
+    }
+    if (!values.intensity) {
+      values.intensity = 'medium';
+    }
+
     // Stop recording if active
     if (isRecording) {
       stopRecording();
@@ -1385,7 +1360,14 @@ const Report = () => {
           )}
 
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+            <form
+              onSubmit={form.handleSubmit(onSubmit, (errors) => {
+                console.warn('Form validation errors:', errors);
+                const first = Object.values(errors)[0]?.message || 'Please complete the required fields.';
+                toast.error(String(first));
+              })}
+              className="space-y-8"
+            >
               {/* Category Selection */}
               <div className="space-y-4 animate-fade-in">
                 <FormField

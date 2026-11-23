@@ -96,7 +96,13 @@ export async function analyzeReport(
     if (!options?.forceLocal) {
         try {
             console.log('🤖 Sending complaint to Ollama background AI...');
-            const ollamaResult = await classifyWithOllama(text, options?.model);
+            const timeoutPromise = new Promise<never>((_, reject) => 
+                setTimeout(() => reject(new Error('Ollama response timeout (2s)')), 2000)
+            );
+            const ollamaResult = await Promise.race([
+                classifyWithOllama(text, options?.model),
+                timeoutPromise
+            ]);
 
             console.log('✅ Ollama classification received:', ollamaResult);
 
