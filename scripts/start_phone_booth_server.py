@@ -166,7 +166,7 @@ CRITICAL RULES:
 1. ONLY extract information directly and voluntarily stated by the child. NEVER assume, guess, or hallucinate facts.
 2. If the child did not mention an item, return null for that field.
 3. DETERMINE THE ESCALATION PATHWAY:
-   - "higher_authority": If the incident involves a teacher, school staff member, principal, or severe physical harm/danger.
+   - "higher_authority": If the incident involves a teacher, school staff member, principal, illegal substance/drug dealing, weapon, or critical immediate danger.
    - "normal": For peer disputes, standard student bullying, facility safety concerns, or academic stress.
 
 Respond ONLY with valid JSON matching this schema:
@@ -178,13 +178,15 @@ Respond ONLY with valid JSON matching this schema:
     "identity_confirmation": "confirmed" | "not_confirmed"
   },
   "incident": {
-    "category": "bullying" | "teacher_involved" | "abuse" | "academic" | "safety" | "other",
+    "category": "bullying" | "teacher_involved" | "abuse" | "substance_abuse" | "academic" | "safety" | "other",
     "description": string,
     "frequency": "repeated" | "one_time" | "unknown",
     "location": string or null,
     "time_context": string or null
   },
   "implicated_person": string or null,
+  "substance_involved": string or null,
+  "target_population": string or null,
   "child_preferences": {
     "wants_anonymity": boolean or null,
     "wants_to_continue": boolean,
@@ -383,44 +385,73 @@ def generate_structured_report_offline(conversation_history):
     is_anon = bool(re.search(r'\b(anonymous|stay anonymous|don\'t tell|dont tell|secret|private|no name)\b', lower))
     anon_pref = "anonymous" if is_anon else ("named" if child_name else "undecided")
 
-    # 2. Location Extraction (Prepositions + Campus Zones)
+    # 2. Location Extraction (Specific Gates & Campus Zones)
     loc = None
-    common_places = [
-        "behind the lockers", "locker room", "lockers", "gymnasium", "gym",
-        "playground", "cafeteria", "canteen", "bus stop", "school bus", "bus",
-        "hallway", "corridor", "classroom", "bathroom", "restroom", "washroom",
-        "library", "stairs", "staircase", "sports field", "football ground", "field",
-        "school gate", "gate", "science lab", "lab", "auditorium", "parking lot"
-    ]
-    for place in common_places:
-        if place in lower:
-            loc = place.title()
-            break
+    # Check for specific Gate mentions (e.g. "second gate", "third gate", "gate 2", "behind second gate")
+    gate_matches = re.findall(r'\b((?:first|second|third|fourth|fifth|1st|2nd|3rd|4th|5th|main|back|front|side)\s+gate|gate\s+[0-9]+)\b', lower)
+    if gate_matches:
+        clean_gates = list(dict.fromkeys([g.strip().title() for g in gate_matches]))
+        loc = " / ".join(clean_gates)
+    
     if not loc:
-        m = re.search(r'\b(?:at|in|near|behind|around|by|inside|outside)\s+(?:the\s+)?([a-zA-Z\s]{2,25}?)(?=[,\.\?!]|\b(?:today|yesterday|during|at|when|and|he|she|they|i|my|every)\b|$)', lower)
+        common_places = [
+            "behind the lockers", "locker room", "lockers", "gymnasium", "gym",
+            "playground", "cafeteria", "canteen", "bus stop", "school bus", "bus",
+            "hallway", "corridor", "classroom", "bathroom", "restroom", "washroom",
+            "library", "stairs", "staircase", "sports field", "football ground", "field",
+            "school gate", "gate", "science lab", "lab", "auditorium", "parking lot"
+        ]
+        for place in common_places:
+            if place in lower:
+                loc = place.title()
+                break
+    if not loc:
+        m = re.search(r'\b(?:at|in|near|behind|around|by|inside|outside)\s+(?:the\s+)?([a-zA-Z0-9\s]{2,25}?)(?=[,\.\?!]|\b(?:today|yesterday|during|at|when|and|he|she|they|i|my|every)\b|$)', lower)
         if m:
             candidate = m.group(1).strip()
             if candidate and len(candidate) > 2 and candidate not in ("school", "here", "it", "my", "me", "us"):
                 loc = candidate.title()
 
-    # 3. Timeframe Extraction
+    # 3. Timeframe Extraction (Upcoming Event Days & Schedules)
     time_ctx = None
-    time_terms = [
-        "during recess", "recess", "during lunch", "lunch break", "lunch time",
-        "this morning", "this afternoon", "yesterday afternoon", "yesterday morning",
-        "yesterday", "today", "last week", "after school", "before school",
-        "during class", "at break", "break time", "every day", "everyday"
-    ]
-    for t in time_terms:
-        if t in lower:
-            time_ctx = t.title()
-            break
+    time_match = re.search(r'\b((?:coming|this|next|on)\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|tomorrow|tonight|today|yesterday|this morning|this afternoon|yesterday afternoon|yesterday morning|last week|after school|before school|during recess|during lunch|at break)\b', lower)
+    if time_match:
+        raw_t = time_match.group(1).title()
+        if raw_t.lower() in ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"):
+            time_ctx = f"Coming {raw_t}"
+        else:
+            time_ctx = raw_t
+    else:
+        time_terms = [
+            "during recess", "recess", "during lunch", "lunch break", "lunch time",
+            "this morning", "this afternoon", "yesterday afternoon", "yesterday morning",
+            "yesterday", "today", "last week", "after school", "before school",
+            "during class", "at break", "break time", "every day", "everyday"
+        ]
+        for t in time_terms:
+            if t in lower:
+                time_ctx = t.title()
+                break
 
-    # 4. Implicated Person Extraction (Teacher or Bully/Peer)
+    # 4. Implicated Persons & Suspects (Count, Alias, Roles)
     imp = None
+    suspect_details = []
+    # Count of dealers / suspects
+    cnt_m = re.search(r'\b(?:total of|group of)\s+([0-9]+|[a-z]+)\b|\b([0-9]+)\s+(?:dealers|bullies|guys|people|men|individuals)\b', lower)
+    if cnt_m:
+        count_val = cnt_m.group(1) or cnt_m.group(2)
+        suspect_details.append(f"{count_val} individuals/dealers")
+
+    # Suspect name or alias
+    name_m = re.search(r'\b(?:guys?\s+names?|name is|called|named|alias)\s+([a-zA-Z]+)\b', full_text, re.IGNORECASE)
+    if name_m and name_m.group(1).lower() not in ("he", "she", "my", "our", "school", "the", "a", "it", "they"):
+        suspect_details.append(f"alias/name '{name_m.group(1).capitalize()}'")
+
     tm = re.search(r'\b((?:mr\.|mrs\.|ms\.|miss|sir|coach|principal|teacher|dr\.)\s+[a-zA-Z]+)\b', full_text, re.IGNORECASE)
     if tm:
         imp = tm.group(1).title()
+    elif suspect_details:
+        imp = ", ".join(suspect_details)
     else:
         bm = re.search(r'\b([a-zA-Z]+)\s+(?:and\s+[a-zA-Z]+\s+)?(?:pushed|punched|hit|kicked|teased|mocked|shoved|stole|bullied|threatened|hurt|cursed|yelled)\b', full_text)
         if bm and bm.group(1).lower() not in ("he", "she", "they", "someone", "somebody", "a", "the", "my"):
@@ -430,26 +461,54 @@ def generate_structured_report_offline(conversation_history):
             if by_m and by_m.group(1).lower() not in ("him", "her", "them", "me", "us", "my"):
                 imp = by_m.group(1)
 
-    # 5. Witnesses Extraction
+    # 5. Targeted Population / Victims
+    target_pop = None
+    if re.search(r'\b(other kids|other students|younger kids|children|classmates|everyone|my class|kids)\b', lower):
+        target_pop = "Other students / school children"
+    elif "me" in lower or "myself" in lower:
+        target_pop = "Directly targeting reporting student"
+
+    # 6. Specific Substance / Contraband / Weapon
+    substance = None
+    if re.search(r'\b(drug|drugs|weed|marijuana|pills|cocaine|narcotics|dealer|dealers|dealing)\b', lower):
+        substance = "Illicit Drugs / Narcotics"
+    elif re.search(r'\b(vape|vaping|e-cig)\b', lower):
+        substance = "Vape / Nicotine"
+    elif re.search(r'\b(alcohol|beer|liquor)\b', lower):
+        substance = "Alcohol"
+    elif re.search(r'\b(knife|gun|weapon|blade)\b', lower):
+        substance = "Dangerous Weapon"
+
+    # 7. Witnesses Extraction
     wit = None
     wm = re.search(r'\b(?:(?:my friend|classmate|witness|friend)\s+([A-Z][a-z]+)|([A-Z][a-z]+)\s+(?:saw it|saw this|was there|was with me))\b', full_text)
     if wm:
         wit = (wm.group(1) or wm.group(2)).capitalize()
+    elif "my friend" in lower:
+        wit = "Friend / Peer"
     elif "everyone" in lower or "all the kids" in lower:
         wit = "Classmates present"
 
-    # 6. Physical Harm & Danger Indicators
+    # 8. Physical Harm & Danger Indicators
     harm = bool(re.search(r'\b(hit|punch|punched|kick|kicked|shove|shoved|pushed|push|fight|fought|hurt|bleed|bleeding|bruise|bruised|slap|slapped|beat)\b', lower))
-    danger = bool(re.search(r'\b(kill|knife|weapon|gun|emergency|die|suicide|hospital|right now|bleeding badly)\b', lower))
+    danger = bool(re.search(r'\b(kill|knife|weapon|gun|emergency|die|suicide|hospital|right now|bleeding badly|drug dealing|dealers)\b', lower))
     is_recurring = bool(re.search(r'\b(repeat|repeating|keeps|always|every day|everyday|again|often|constantly)\b', lower))
     freq = "repeated" if is_recurring else ("one_time" if "today" in lower or "once" in lower else "unknown")
 
-    # 7. Category & Escalation Determination
+    # 9. Category & Escalation Determination
+    is_drug_substance = bool(substance is not None or re.search(r'\b(drug|drugs|dealing|dealer|dealers|weed|substance|pills)\b', lower))
+
     if imp and re.search(r'\b(mr\.|mrs\.|ms\.|miss|sir|coach|principal|teacher|dr\.)\b', imp.lower()) or re.search(r'\b(teacher|sir|madam|miss|coach|principal|staff)\b', lower):
         category = "teacher_involved"
         sev = "L3"
         esc_path = "higher_authority"
         esc_reason = "Teacher or school staff member implicated"
+    elif is_drug_substance:
+        category = "substance_abuse"
+        sev = "L3"
+        esc_path = "higher_authority"
+        esc_reason = "Critical: Illicit substance dealing / drug distribution targeting students on school perimeter"
+        danger = True
     elif danger:
         category = "physical_threat"
         sev = "L3"
@@ -476,7 +535,19 @@ def generate_structured_report_offline(conversation_history):
         esc_path = "normal"
         esc_reason = "General campus safety inquiry"
 
-    # 8. Concise Executive Summary
+    # 10. Recommended Safeguarding Actions
+    recommendations = []
+    if is_drug_substance:
+        recommendations.append(f"Deploy staff/police security detail to {loc or 'perimeter gates'} ({time_ctx or 'immediately'})")
+        recommendations.append("Immediate escalation to school security and local police liaison")
+        recommendations.append("Review perimeter CCTV camera footage")
+    elif category == "teacher_involved":
+        recommendations.append("Immediate confidential review by Designated Safeguarding Lead (DSL)")
+        recommendations.append("Protect reporting child from retaliation")
+    elif danger:
+        recommendations.append("Immediate in-person welfare check and campus security dispatch")
+
+    # 11. Concise Executive Summary
     summary_parts = []
     if child_name:
         summary_parts.append(f"Student {child_name}")
@@ -489,6 +560,8 @@ def generate_structured_report_offline(conversation_history):
         summary_parts.append(f"at {loc}")
     if time_ctx:
         summary_parts.append(f"({time_ctx})")
+    if target_pop:
+        summary_parts.append(f"targeting {target_pop}")
     if wit:
         summary_parts.append(f"witnessed by {wit}")
     summary = " ".join(summary_parts) + "."
@@ -500,6 +573,9 @@ def generate_structured_report_offline(conversation_history):
         "incident_timeframe": time_ctx,
         "implicated_person": imp,
         "witnesses_present": wit,
+        "target_population": target_pop,
+        "substance_involved": substance,
+        "safeguarding_recommendations": recommendations,
         "physical_harm_indicated": harm,
         "immediate_danger": danger,
         "is_ongoing": is_recurring,
@@ -674,8 +750,8 @@ async def handle_websocket_client(websocket, active_model):
     current_turn_task = None
 
     try:
-        # Initial greeting: Phase 1 Welcoming the Child
-        initial_greeting = "Hi. I'm here to listen. You can tell me anything that's been bothering you, at your own pace. You don't have to explain everything perfectly, and if you don't want to answer something, that's okay too."
+        # Initial greeting: Phase 1 Welcoming the Child with clear end-of-call guidance
+        initial_greeting = "Hi. I'm here to listen. You can tell me anything that's been bothering you at your own pace. Names and details are completely optional. Whenever you are ready to finish, just say 'Goodbye' or 'That's all', and I will safely save your report for our counselors."
         greeting_audio = await asyncio.get_running_loop().run_in_executor(None, synthesize_elevenlabs_b64, initial_greeting)
         
         await websocket.send(json.dumps({
@@ -755,11 +831,15 @@ async def handle_websocket_client(websocket, active_model):
                 if inc.get("time_context"): session_slots["incident_timeframe"] = inc["time_context"]
                 if inc.get("category"): session_slots["category"] = inc["category"]
                 if session_slots.get("implicated_person"): session_slots["implicatedName"] = session_slots["implicated_person"]
+                if extracted.get("substance_involved"): session_slots["substance_involved"] = extracted["substance_involved"]
+                if extracted.get("target_population"): session_slots["target_population"] = extracted["target_population"]
+                if extracted.get("safeguarding_recommendations"): session_slots["safeguarding_recommendations"] = extracted["safeguarding_recommendations"]
                 if safety.get("physical_harm_indicated") is not None: session_slots["physical_harm_indicated"] = safety["physical_harm_indicated"]
                 if safety.get("immediate_danger") is not None: session_slots["immediate_danger"] = safety["immediate_danger"]
 
-                # Auto-escalation flag check (L3, teacher misconduct, or immediate danger)
+                # Auto-escalation flag check (L3, teacher misconduct, illegal substance/drug dealing, or immediate danger)
                 if (session_slots.get("category") == "teacher_involved" or
+                    session_slots.get("category") == "substance_abuse" or
                     session_slots.get("severity_level") == "L3" or
                     session_slots.get("immediate_danger") is True or
                     (esc.get("reporting_pathway") == "higher_authority")):

@@ -17,7 +17,11 @@ export interface ExtractedReportSlots {
   location?: string | null;
   incident_timeframe?: string | null;
   implicated_person?: string | null;
+  implicatedName?: string | null;
   witnesses_present?: string | null;
+  target_population?: string | null;
+  substance_involved?: string | null;
+  safeguarding_recommendations?: string[] | null;
   physical_harm_indicated?: boolean | null;
   is_ongoing?: boolean | null;
   immediate_danger?: boolean | null;

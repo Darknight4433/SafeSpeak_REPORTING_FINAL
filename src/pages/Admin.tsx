@@ -66,6 +66,9 @@ export interface ExtractedSlots {
   incident_timeframe?: string | null;
   implicated_person?: string | null;
   witnesses_present?: string | null;
+  target_population?: string | null;
+  substance_involved?: string | null;
+  safeguarding_recommendations?: string[] | null;
   physical_harm_indicated?: boolean | null;
   is_ongoing?: boolean | null;
   immediate_danger?: boolean | null;
@@ -116,10 +119,12 @@ const categoryIcons: Record<string, string> = {
   abuse: '🆘',
   academic: '📚',
   family: '👨‍👩‍👧‍👦',
-  safety: '⚠️',
+  safety: '🛡️',
   other: '💬',
   teacher_involved: '🚨',
   physical_threat: '⚠️',
+  substance_abuse: '💊',
+  drugs_contraband: '💊',
   sexual_abuse: '🛑',
   self_harm: '❤️‍🩹',
 };
@@ -639,64 +644,109 @@ const Admin = () => {
                         const danger = slots.immediate_danger ?? report.safety_flags?.immediate_danger ?? report.safety_flags?.urgent_review;
                         const ongoing = slots.is_ongoing ?? (report.incident?.frequency === 'repeated');
                         const escReason = report.escalation_decision?.reason || report.escalationMeta?.escalated_reason;
+                        const substance = slots.substance_involved || (report as any).substance_involved;
+                        const targetPop = slots.target_population || (report as any).target_population;
+                        const recs: string[] = slots.safeguarding_recommendations || (report as any).safeguarding_recommendations || [];
 
                         return (
-                          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-3 border-t text-xs">
-                            <div className="p-2.5 rounded bg-muted/40 border">
-                              <span className="text-muted-foreground block text-[11px]">Location</span>
-                              <span className="font-semibold text-foreground flex items-center gap-1 mt-0.5">
-                                <MapPin className="w-3 h-3 text-muted-foreground" /> {loc || 'Campus / General'}
-                              </span>
+                          <div className="space-y-3 pt-3 border-t">
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                              <div className="p-2.5 rounded bg-muted/40 border">
+                                <span className="text-muted-foreground block text-[11px]">Location</span>
+                                <span className="font-semibold text-foreground flex items-center gap-1 mt-0.5">
+                                  <MapPin className="w-3 h-3 text-muted-foreground" /> {loc || 'Campus / General'}
+                                </span>
+                              </div>
+
+                              <div className="p-2.5 rounded bg-muted/40 border">
+                                <span className="text-muted-foreground block text-[11px]">Timeframe</span>
+                                <span className="font-semibold text-foreground flex items-center gap-1 mt-0.5">
+                                  <Clock className="w-3 h-3 text-muted-foreground" /> {time || 'Recently Reported'}
+                                </span>
+                              </div>
+
+                              <div className="p-2.5 rounded bg-muted/40 border">
+                                <span className="text-muted-foreground block text-[11px]">Implicated Person</span>
+                                <span className={`font-semibold flex items-center gap-1 mt-0.5 ${imp ? 'text-destructive font-bold' : 'text-muted-foreground'}`}>
+                                  <AlertTriangle className="w-3 h-3" /> {imp || 'Not specified'}
+                                </span>
+                              </div>
+
+                              <div className="p-2.5 rounded bg-muted/40 border">
+                                <span className="text-muted-foreground block text-[11px]">Witnesses</span>
+                                <span className="font-semibold text-foreground flex items-center gap-1 mt-0.5">
+                                  <User className="w-3 h-3 text-muted-foreground" /> {wit || 'None mentioned'}
+                                </span>
+                              </div>
+
+                              <div className="p-2.5 rounded bg-muted/40 border">
+                                <span className="text-muted-foreground block text-[11px]">Physical Harm</span>
+                                <span className={`font-semibold flex items-center gap-1 mt-0.5 ${harm ? 'text-destructive font-bold' : 'text-muted-foreground'}`}>
+                                  {harm ? '⚠️ Indicated' : 'None Reported'}
+                                </span>
+                              </div>
+
+                              <div className="p-2.5 rounded bg-muted/40 border">
+                                <span className="text-muted-foreground block text-[11px]">Immediate Danger</span>
+                                <span className={`font-semibold flex items-center gap-1 mt-0.5 ${danger ? 'text-destructive font-bold' : 'text-emerald-600'}`}>
+                                  {danger ? '🚨 Critical Danger' : 'No Immediate Risk'}
+                                </span>
+                              </div>
+
+                              <div className="p-2.5 rounded bg-muted/40 border">
+                                <span className="text-muted-foreground block text-[11px]">Frequency</span>
+                                <span className="font-semibold text-foreground flex items-center gap-1 mt-0.5">
+                                  {ongoing ? '🔄 Repeated / Ongoing' : 'Single Occurrence'}
+                                </span>
+                              </div>
+
+                              <div className="p-2.5 rounded bg-muted/40 border col-span-2 md:col-span-1">
+                                <span className="text-muted-foreground block text-[11px]">AI Escalation Rationale</span>
+                                <span className="font-medium text-foreground truncate block mt-0.5" title={escReason || 'Automated Safeguarding Review'}>
+                                  {escReason || (report.isEscalated ? 'Staff implicated / Critical' : 'Standard Counselor Intake')}
+                                </span>
+                              </div>
                             </div>
 
-                            <div className="p-2.5 rounded bg-muted/40 border">
-                              <span className="text-muted-foreground block text-[11px]">Timeframe</span>
-                              <span className="font-semibold text-foreground flex items-center gap-1 mt-0.5">
-                                <Clock className="w-3 h-3 text-muted-foreground" /> {time || 'Recently Reported'}
-                              </span>
-                            </div>
+                            {/* Threat Contraband & Targeted Population */}
+                            {(substance || targetPop) && (
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                                {substance && (
+                                  <div className="p-2.5 rounded bg-red-500/10 border border-red-500/30 text-red-900 dark:text-red-200">
+                                    <span className="text-red-600 dark:text-red-400 font-bold block text-[10px] uppercase tracking-wider">
+                                      🚨 Identified Contraband / Substance Threat
+                                    </span>
+                                    <span className="font-bold text-sm mt-0.5 block">
+                                      {substance}
+                                    </span>
+                                  </div>
+                                )}
+                                {targetPop && (
+                                  <div className="p-2.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-900 dark:text-amber-200">
+                                    <span className="text-amber-700 dark:text-amber-400 font-bold block text-[10px] uppercase tracking-wider">
+                                      🎯 Targeted Group / Population
+                                    </span>
+                                    <span className="font-semibold text-sm mt-0.5 block">
+                                      {targetPop}
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                            )}
 
-                            <div className="p-2.5 rounded bg-muted/40 border">
-                              <span className="text-muted-foreground block text-[11px]">Implicated Person</span>
-                              <span className={`font-semibold flex items-center gap-1 mt-0.5 ${imp ? 'text-destructive font-bold' : 'text-muted-foreground'}`}>
-                                <AlertTriangle className="w-3 h-3" /> {imp || 'Not specified'}
-                              </span>
-                            </div>
-
-                            <div className="p-2.5 rounded bg-muted/40 border">
-                              <span className="text-muted-foreground block text-[11px]">Witnesses</span>
-                              <span className="font-semibold text-foreground flex items-center gap-1 mt-0.5">
-                                <User className="w-3 h-3 text-muted-foreground" /> {wit || 'None mentioned'}
-                              </span>
-                            </div>
-
-                            <div className="p-2.5 rounded bg-muted/40 border">
-                              <span className="text-muted-foreground block text-[11px]">Physical Harm</span>
-                              <span className={`font-semibold flex items-center gap-1 mt-0.5 ${harm ? 'text-destructive font-bold' : 'text-muted-foreground'}`}>
-                                {harm ? '⚠️ Indicated' : 'None Reported'}
-                              </span>
-                            </div>
-
-                            <div className="p-2.5 rounded bg-muted/40 border">
-                              <span className="text-muted-foreground block text-[11px]">Immediate Danger</span>
-                              <span className={`font-semibold flex items-center gap-1 mt-0.5 ${danger ? 'text-destructive font-bold' : 'text-emerald-600'}`}>
-                                {danger ? '🚨 Critical Danger' : 'No Immediate Risk'}
-                              </span>
-                            </div>
-
-                            <div className="p-2.5 rounded bg-muted/40 border">
-                              <span className="text-muted-foreground block text-[11px]">Frequency</span>
-                              <span className="font-semibold text-foreground flex items-center gap-1 mt-0.5">
-                                {ongoing ? '🔄 Repeated / Ongoing' : 'Single Occurrence'}
-                              </span>
-                            </div>
-
-                            <div className="p-2.5 rounded bg-muted/40 border col-span-2 md:col-span-1">
-                              <span className="text-muted-foreground block text-[11px]">AI Escalation Rationale</span>
-                              <span className="font-medium text-foreground truncate block mt-0.5" title={escReason || 'Automated Safeguarding Review'}>
-                                {escReason || (report.isEscalated ? 'Staff implicated / Critical' : 'Standard Counselor Intake')}
-                              </span>
-                            </div>
+                            {/* Actionable Safeguarding Protocols */}
+                            {recs && recs.length > 0 && (
+                              <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 text-xs text-blue-950 dark:text-blue-100 space-y-1.5">
+                                <span className="font-bold uppercase tracking-wider text-[11px] text-blue-700 dark:text-blue-300 flex items-center gap-1.5">
+                                  <Shield className="w-3.5 h-3.5" /> Recommended Safeguarding Protocols
+                                </span>
+                                <ul className="list-disc list-inside space-y-1 text-xs font-medium">
+                                  {recs.map((r, rIdx) => (
+                                    <li key={rIdx}>{r}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
                           </div>
                         );
                       })()}

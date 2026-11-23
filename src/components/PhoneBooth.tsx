@@ -861,6 +861,17 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
 
               {/* Spoken Conversation Live Transcript */}
               <div className="space-y-2">
+                {/* Hands-Free Voice Conclusion Helper Banner */}
+                <div className="flex items-center justify-between px-3.5 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-xs text-emerald-900 dark:text-emerald-200">
+                  <span className="flex items-center gap-2 font-medium">
+                    <Sparkles className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                    <span>Tip: Whenever you&apos;re ready to end the call, just say <strong className="underline decoration-emerald-500 underline-offset-2">&ldquo;Goodbye&rdquo;</strong> or <strong className="underline decoration-emerald-500 underline-offset-2">&ldquo;That&apos;s all&rdquo;</strong> to auto-submit hands-free.</span>
+                  </span>
+                  <Badge variant="outline" className="hidden sm:inline-flex text-[10px] bg-background/80 border-emerald-500/30 text-emerald-700 dark:text-emerald-300 font-semibold">
+                    Voice-Activated
+                  </Badge>
+                </div>
+
                 <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
                   <span className="font-semibold uppercase tracking-wider">Live Spoken Transcript</span>
                   <span>Audio is not permanently stored • Plaintext reviewed by counselors</span>
@@ -962,7 +973,7 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
                     <div className="p-2 rounded bg-muted/40 border">
                       <span className="text-muted-foreground block text-[10px]">Concern Category</span>
-                      <span className="font-bold capitalize">{extractedSlots.category || 'Analyzing...'}</span>
+                      <span className="font-bold capitalize">{extractedSlots.category ? extractedSlots.category.replace(/_/g, ' ') : 'Analyzing...'}</span>
                     </div>
                     <div className="p-2 rounded bg-muted/40 border">
                       <span className="text-muted-foreground block text-[10px]">Location</span>
@@ -974,9 +985,46 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
                     </div>
                     <div className="p-2 rounded bg-muted/40 border">
                       <span className="text-muted-foreground block text-[10px]">Persons Mentioned</span>
-                      <span className="font-semibold">{extractedSlots.implicated_person || 'Optional'}</span>
+                      <span className="font-semibold truncate block" title={extractedSlots.implicated_person || ''}>
+                        {extractedSlots.implicated_person || 'Optional'}
+                      </span>
                     </div>
                   </div>
+
+                  {/* High-Risk Safeguarding Attributes: Substance, Target, Actions */}
+                  {(extractedSlots.substance_involved || extractedSlots.target_population) && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 text-xs">
+                      {extractedSlots.substance_involved && (
+                        <div className="p-2 rounded bg-red-500/10 border border-red-500/20 text-red-700 dark:text-red-300">
+                          <span className="text-red-600/80 dark:text-red-400 block text-[10px] font-bold uppercase">Contraband / Substance</span>
+                          <span className="font-bold flex items-center gap-1 mt-0.5">
+                            🚨 {extractedSlots.substance_involved}
+                          </span>
+                        </div>
+                      )}
+                      {extractedSlots.target_population && (
+                        <div className="p-2 rounded bg-amber-500/10 border border-amber-500/20 text-amber-800 dark:text-amber-200">
+                          <span className="text-amber-600/80 dark:text-amber-400 block text-[10px] font-bold uppercase">Targeted Group</span>
+                          <span className="font-semibold flex items-center gap-1 mt-0.5">
+                            🎯 {extractedSlots.target_population}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {extractedSlots.safeguarding_recommendations && extractedSlots.safeguarding_recommendations.length > 0 && (
+                    <div className="p-2 rounded bg-blue-500/10 border border-blue-500/20 text-[11px] text-blue-900 dark:text-blue-200 space-y-1">
+                      <span className="font-bold uppercase tracking-wider text-[10px] text-blue-600 dark:text-blue-400 block">
+                        🛡️ Recommended Immediate Actions
+                      </span>
+                      <ul className="list-disc list-inside space-y-0.5 font-medium">
+                        {extractedSlots.safeguarding_recommendations.map((rec, rIdx) => (
+                          <li key={rIdx}>{rec}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
 
                   {extractedSlots.summary && (
                     <div className="text-xs text-muted-foreground pt-1.5 border-t border-muted/60 italic">
