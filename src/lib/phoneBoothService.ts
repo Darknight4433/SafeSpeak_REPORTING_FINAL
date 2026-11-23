@@ -375,6 +375,8 @@ export class PhoneBoothSessionManager {
     const candidates = Array.from(new Set([
       preferredUrl,
       getSavedPhoneBoothWsUrl(),
+      'ws://127.0.0.1:8765',
+      'ws://localhost:8765',
       'ws://desktop-4l1f9jg.local:8765',
       'ws://192.168.10.39:8765',
       'ws://192.168.10.44:8765'
