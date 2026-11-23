@@ -630,75 +630,76 @@ const Admin = () => {
                       </div>
 
                       {/* Voice AI Safeguarding & Risk Extraction Grid */}
-                      {voice && (slots.implicated_person || slots.location || slots.incident_timeframe || slots.witnesses_present || slots.physical_harm_indicated || slots.immediate_danger || slots.is_ongoing) && (
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-3 border-t text-xs">
-                          {slots.implicated_person && (
-                            <div className="p-2.5 rounded bg-muted/40 border">
-                              <span className="text-muted-foreground block text-[11px]">Implicated Person</span>
-                              <span className="font-semibold text-destructive flex items-center gap-1 mt-0.5">
-                                <AlertTriangle className="w-3 h-3" /> {slots.implicated_person}
-                              </span>
-                            </div>
-                          )}
+                      {voice && (() => {
+                        const loc = slots.location || report.location || report.incident?.location;
+                        const time = slots.incident_timeframe || report.incidentTimeframe || report.incident?.time_context;
+                        const imp = slots.implicated_person || report.implicatedName || report.incident?.implicated_person;
+                        const wit = slots.witnesses_present || report.witnessesPresent || report.incident?.witnesses_present;
+                        const harm = slots.physical_harm_indicated ?? report.physicalHarmIndicated ?? report.safety_flags?.physical_harm_indicated;
+                        const danger = slots.immediate_danger ?? report.safety_flags?.immediate_danger ?? report.safety_flags?.urgent_review;
+                        const ongoing = slots.is_ongoing ?? (report.incident?.frequency === 'repeated');
+                        const escReason = report.escalation_decision?.reason || report.escalationMeta?.escalated_reason;
 
-                          {slots.location && (
+                        return (
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-3 border-t text-xs">
                             <div className="p-2.5 rounded bg-muted/40 border">
                               <span className="text-muted-foreground block text-[11px]">Location</span>
                               <span className="font-semibold text-foreground flex items-center gap-1 mt-0.5">
-                                <MapPin className="w-3 h-3 text-muted-foreground" /> {slots.location}
+                                <MapPin className="w-3 h-3 text-muted-foreground" /> {loc || 'Campus / General'}
                               </span>
                             </div>
-                          )}
 
-                          {slots.incident_timeframe && (
                             <div className="p-2.5 rounded bg-muted/40 border">
                               <span className="text-muted-foreground block text-[11px]">Timeframe</span>
                               <span className="font-semibold text-foreground flex items-center gap-1 mt-0.5">
-                                <Clock className="w-3 h-3 text-muted-foreground" /> {slots.incident_timeframe}
+                                <Clock className="w-3 h-3 text-muted-foreground" /> {time || 'Recently Reported'}
                               </span>
                             </div>
-                          )}
 
-                          {slots.witnesses_present && (
+                            <div className="p-2.5 rounded bg-muted/40 border">
+                              <span className="text-muted-foreground block text-[11px]">Implicated Person</span>
+                              <span className={`font-semibold flex items-center gap-1 mt-0.5 ${imp ? 'text-destructive font-bold' : 'text-muted-foreground'}`}>
+                                <AlertTriangle className="w-3 h-3" /> {imp || 'Not specified'}
+                              </span>
+                            </div>
+
                             <div className="p-2.5 rounded bg-muted/40 border">
                               <span className="text-muted-foreground block text-[11px]">Witnesses</span>
                               <span className="font-semibold text-foreground flex items-center gap-1 mt-0.5">
-                                <User className="w-3 h-3 text-muted-foreground" /> {slots.witnesses_present}
+                                <User className="w-3 h-3 text-muted-foreground" /> {wit || 'None mentioned'}
                               </span>
                             </div>
-                          )}
 
-                          <div className="p-2.5 rounded bg-muted/40 border">
-                            <span className="text-muted-foreground block text-[11px]">Physical Harm</span>
-                            <span className={`font-semibold flex items-center gap-1 mt-0.5 ${slots.physical_harm_indicated ? 'text-destructive font-bold' : 'text-muted-foreground'}`}>
-                              {slots.physical_harm_indicated ? '⚠️ Indicated' : 'None Reported'}
-                            </span>
-                          </div>
+                            <div className="p-2.5 rounded bg-muted/40 border">
+                              <span className="text-muted-foreground block text-[11px]">Physical Harm</span>
+                              <span className={`font-semibold flex items-center gap-1 mt-0.5 ${harm ? 'text-destructive font-bold' : 'text-muted-foreground'}`}>
+                                {harm ? '⚠️ Indicated' : 'None Reported'}
+                              </span>
+                            </div>
 
-                          <div className="p-2.5 rounded bg-muted/40 border">
-                            <span className="text-muted-foreground block text-[11px]">Immediate Danger</span>
-                            <span className={`font-semibold flex items-center gap-1 mt-0.5 ${slots.immediate_danger ? 'text-destructive font-bold' : 'text-emerald-600'}`}>
-                              {slots.immediate_danger ? '🚨 Critical Danger' : 'No Immediate Risk'}
-                            </span>
-                          </div>
+                            <div className="p-2.5 rounded bg-muted/40 border">
+                              <span className="text-muted-foreground block text-[11px]">Immediate Danger</span>
+                              <span className={`font-semibold flex items-center gap-1 mt-0.5 ${danger ? 'text-destructive font-bold' : 'text-emerald-600'}`}>
+                                {danger ? '🚨 Critical Danger' : 'No Immediate Risk'}
+                              </span>
+                            </div>
 
-                          <div className="p-2.5 rounded bg-muted/40 border">
-                            <span className="text-muted-foreground block text-[11px]">Frequency</span>
-                            <span className="font-semibold text-foreground flex items-center gap-1 mt-0.5">
-                              {slots.is_ongoing ? '🔄 Repeated / Ongoing' : 'Single Occurrence'}
-                            </span>
-                          </div>
+                            <div className="p-2.5 rounded bg-muted/40 border">
+                              <span className="text-muted-foreground block text-[11px]">Frequency</span>
+                              <span className="font-semibold text-foreground flex items-center gap-1 mt-0.5">
+                                {ongoing ? '🔄 Repeated / Ongoing' : 'Single Occurrence'}
+                              </span>
+                            </div>
 
-                          {report.escalation_decision?.reason && (
                             <div className="p-2.5 rounded bg-muted/40 border col-span-2 md:col-span-1">
                               <span className="text-muted-foreground block text-[11px]">AI Escalation Rationale</span>
-                              <span className="font-medium text-foreground truncate block mt-0.5" title={report.escalation_decision.reason}>
-                                {report.escalation_decision.reason}
+                              <span className="font-medium text-foreground truncate block mt-0.5" title={escReason || 'Automated Safeguarding Review'}>
+                                {escReason || (report.isEscalated ? 'Staff implicated / Critical' : 'Standard Counselor Intake')}
                               </span>
                             </div>
-                          )}
-                        </div>
-                      )}
+                          </div>
+                        );
+                      })()}
 
                       {/* Manual Form Metadata Grid */}
                       {!voice && (

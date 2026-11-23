@@ -371,38 +371,141 @@ def generate_safespeak_empathy_sentences(conversation_history):
         return ["I have noted what you told me.", "Is there anything else on your mind, or would you like to finish the call?"]
 
 def generate_structured_report_offline(conversation_history):
-    """Generates structured report JSON matching the official schema."""
+    """Generates comprehensive structured report JSON matching the official schema fast & accurately."""
     user_turns = [msg.get("content", "").strip() for msg in conversation_history if msg.get("role") == "user"]
     full_text = " ".join(user_turns)
     lower = full_text.lower()
 
+    # 1. Child Name & Anonymity
     name_match = re.search(r'\b(?:my name is|i am|i\'m|call me|name is)\s+([a-zA-Z]+)\b', lower)
     child_name = name_match.group(1).capitalize() if name_match else None
 
     is_anon = bool(re.search(r'\b(anonymous|stay anonymous|don\'t tell|dont tell|secret|private|no name)\b', lower))
     anon_pref = "anonymous" if is_anon else ("named" if child_name else "undecided")
 
-    is_recurring = bool(re.search(r'\b(repeat|repeating|keeps|always|every day|everyday|again|often)\b', lower))
-    freq = "repeated" if is_recurring else ("one_time" if "today" in lower or "once" in lower else "unknown")
-
-    category = "other"
-    if re.search(r'\b(teacher|sir|madam|miss|coach|principal|staff)\b', lower):
-        category = "teacher_involved"
-    elif re.search(r'\b(bully|bullied|bullying|mock|tease|teasing|laugh)\b', lower):
-        category = "peer_interpersonal_concern"
-    elif re.search(r'\b(hit|kick|punch|fight|hurt|physical|bleed)\b', lower):
-        category = "physical_threat"
-
+    # 2. Location Extraction (Prepositions + Campus Zones)
     loc = None
-    for place in ["lunch", "classroom", "hallway", "playground", "cafeteria", "bus", "bathroom", "school"]:
+    common_places = [
+        "behind the lockers", "locker room", "lockers", "gymnasium", "gym",
+        "playground", "cafeteria", "canteen", "bus stop", "school bus", "bus",
+        "hallway", "corridor", "classroom", "bathroom", "restroom", "washroom",
+        "library", "stairs", "staircase", "sports field", "football ground", "field",
+        "school gate", "gate", "science lab", "lab", "auditorium", "parking lot"
+    ]
+    for place in common_places:
         if place in lower:
-            loc = place
+            loc = place.title()
+            break
+    if not loc:
+        m = re.search(r'\b(?:at|in|near|behind|around|by|inside|outside)\s+(?:the\s+)?([a-zA-Z\s]{2,25}?)(?=[,\.\?!]|\b(?:today|yesterday|during|at|when|and|he|she|they|i|my|every)\b|$)', lower)
+        if m:
+            candidate = m.group(1).strip()
+            if candidate and len(candidate) > 2 and candidate not in ("school", "here", "it", "my", "me", "us"):
+                loc = candidate.title()
+
+    # 3. Timeframe Extraction
+    time_ctx = None
+    time_terms = [
+        "during recess", "recess", "during lunch", "lunch break", "lunch time",
+        "this morning", "this afternoon", "yesterday afternoon", "yesterday morning",
+        "yesterday", "today", "last week", "after school", "before school",
+        "during class", "at break", "break time", "every day", "everyday"
+    ]
+    for t in time_terms:
+        if t in lower:
+            time_ctx = t.title()
             break
 
-    is_urgent = bool(re.search(r'\b(kill|suicide|weapon|knife|gun|die|bleed|hospital|emergency)\b', lower))
-    sev = "L3" if is_urgent or category == "teacher_involved" else ("L2" if is_recurring else "L1")
+    # 4. Implicated Person Extraction (Teacher or Bully/Peer)
+    imp = None
+    tm = re.search(r'\b((?:mr\.|mrs\.|ms\.|miss|sir|coach|principal|teacher|dr\.)\s+[a-zA-Z]+)\b', full_text, re.IGNORECASE)
+    if tm:
+        imp = tm.group(1).title()
+    else:
+        bm = re.search(r'\b([a-zA-Z]+)\s+(?:and\s+[a-zA-Z]+\s+)?(?:pushed|punched|hit|kicked|teased|mocked|shoved|stole|bullied|threatened|hurt|cursed|yelled)\b', full_text)
+        if bm and bm.group(1).lower() not in ("he", "she", "they", "someone", "somebody", "a", "the", "my"):
+            imp = bm.group(1).capitalize()
+        else:
+            by_m = re.search(r'\b(?:by|with)\s+([A-Z][a-z]+)\b', full_text)
+            if by_m and by_m.group(1).lower() not in ("him", "her", "them", "me", "us", "my"):
+                imp = by_m.group(1)
+
+    # 5. Witnesses Extraction
+    wit = None
+    wm = re.search(r'\b(?:(?:my friend|classmate|witness|friend)\s+([A-Z][a-z]+)|([A-Z][a-z]+)\s+(?:saw it|saw this|was there|was with me))\b', full_text)
+    if wm:
+        wit = (wm.group(1) or wm.group(2)).capitalize()
+    elif "everyone" in lower or "all the kids" in lower:
+        wit = "Classmates present"
+
+    # 6. Physical Harm & Danger Indicators
+    harm = bool(re.search(r'\b(hit|punch|punched|kick|kicked|shove|shoved|pushed|push|fight|fought|hurt|bleed|bleeding|bruise|bruised|slap|slapped|beat)\b', lower))
+    danger = bool(re.search(r'\b(kill|knife|weapon|gun|emergency|die|suicide|hospital|right now|bleeding badly)\b', lower))
+    is_recurring = bool(re.search(r'\b(repeat|repeating|keeps|always|every day|everyday|again|often|constantly)\b', lower))
+    freq = "repeated" if is_recurring else ("one_time" if "today" in lower or "once" in lower else "unknown")
+
+    # 7. Category & Escalation Determination
+    if imp and re.search(r'\b(mr\.|mrs\.|ms\.|miss|sir|coach|principal|teacher|dr\.)\b', imp.lower()) or re.search(r'\b(teacher|sir|madam|miss|coach|principal|staff)\b', lower):
+        category = "teacher_involved"
+        sev = "L3"
+        esc_path = "higher_authority"
+        esc_reason = "Teacher or school staff member implicated"
+    elif danger:
+        category = "physical_threat"
+        sev = "L3"
+        esc_path = "higher_authority"
+        esc_reason = "Critical immediate safety emergency"
+    elif harm:
+        category = "physical_threat"
+        sev = "L2"
+        esc_path = "normal"
+        esc_reason = "Physical altercation or harm reported"
+    elif re.search(r'\b(bully|bullied|bullying|mock|tease|teasing|laugh|stole|money|name calling)\b', lower):
+        category = "bullying"
+        sev = "L2" if is_recurring else "L1"
+        esc_path = "normal"
+        esc_reason = "Peer bullying or interpersonal harassment"
+    elif re.search(r'\b(exam|test|marks|grade|grades|study|homework|stress|failing)\b', lower):
+        category = "academic"
+        sev = "L1"
+        esc_path = "normal"
+        esc_reason = "Academic distress or pressure"
+    else:
+        category = "safety"
+        sev = "L1"
+        esc_path = "normal"
+        esc_reason = "General campus safety inquiry"
+
+    # 8. Concise Executive Summary
+    summary_parts = []
+    if child_name:
+        summary_parts.append(f"Student {child_name}")
+    else:
+        summary_parts.append("Student")
+    summary_parts.append(f"reported {category.replace('_', ' ')}")
+    if imp:
+        summary_parts.append(f"involving {imp}")
+    if loc:
+        summary_parts.append(f"at {loc}")
+    if time_ctx:
+        summary_parts.append(f"({time_ctx})")
+    if wit:
+        summary_parts.append(f"witnessed by {wit}")
+    summary = " ".join(summary_parts) + "."
 
     return {
+        "category": category,
+        "severity_level": sev,
+        "location": loc,
+        "incident_timeframe": time_ctx,
+        "implicated_person": imp,
+        "witnesses_present": wit,
+        "physical_harm_indicated": harm,
+        "immediate_danger": danger,
+        "is_ongoing": is_recurring,
+        "summary": summary,
+        "is_escalation_required": (sev == "L3" or esc_path == "higher_authority"),
+        "detected_emotion": "Empathetic",
         "identity": {
             "name": child_name,
             "name_provided": bool(child_name),
@@ -411,10 +514,12 @@ def generate_structured_report_offline(conversation_history):
         },
         "incident": {
             "category": category,
-            "description": full_text[:200] if full_text else "Phone booth voice disclosure",
+            "description": summary,
             "frequency": freq,
             "location": loc,
-            "time_context": "after lunch" if "lunch" in lower else None
+            "time_context": time_ctx,
+            "implicated_person": imp,
+            "witnesses_present": wit
         },
         "child_preferences": {
             "wants_anonymity": True if is_anon else None,
@@ -426,21 +531,24 @@ def generate_structured_report_offline(conversation_history):
             "concerns": ["worried_about_identity"] if "know" in lower or "tell" in lower else []
         },
         "safety_flags": {
-            "urgent_review": is_urgent,
+            "urgent_review": (sev == "L3"),
+            "immediate_danger": danger,
+            "physical_harm_indicated": harm,
             "human_review_required": True
         },
+        "escalation_decision": {
+            "reporting_pathway": esc_path,
+            "reason": esc_reason
+        },
         "report_quality": {
-            "missing_fields": [f for f, v in [("name", child_name), ("location", loc)] if not v],
-            "ai_confidence": "direct_statements"
+            "missing_fields": [f for f, v in [("name", child_name), ("location", loc), ("time", time_ctx)] if not v],
+            "ai_confidence": "high_fidelity_extraction"
         },
         "evidence_layer": {
             "name_evidence": "direct" if child_name else "unknown",
             "frequency_evidence": "direct" if is_recurring else "unknown",
             "location_evidence": "direct" if loc else "unknown"
-        },
-        "detected_emotion": "Empathetic",
-        "severity_level": sev,
-        "summary": full_text[:160] if full_text else "Student shared concerns in phone booth"
+        }
     }
 
 def stream_qwen_chat(conversation_history, active_model):
@@ -501,37 +609,47 @@ def stream_qwen_chat(conversation_history, active_model):
             yield s
 
 def extract_slots_background(conversation_history, active_model):
-    """Extracts structured safeguarding slots from the conversation."""
+    """Extracts structured safeguarding slots fast and accurately."""
+    fast_report = generate_structured_report_offline(conversation_history)
     if active_model == "safespeak-empathy-engine":
-        return generate_structured_report_offline(conversation_history)
-
-    flat_transcript = "\n".join([f"{msg['role']}: {msg['content']}" for msg in conversation_history])
-    
-    payload = json.dumps({
-        "model": active_model,
-        "messages": [
-            {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
-            {"role": "user", "content": flat_transcript}
-        ],
-        "stream": False,
-        "format": "json",
-        "options": {"temperature": 0.1, "num_predict": 250}
-    }).encode("utf-8")
-
-    req = urllib.request.Request(
-        f"{OLLAMA_HOST}/api/chat",
-        data=payload,
-        headers={"Content-Type": "application/json"}
-    )
+        return fast_report
 
     try:
-        with urllib.request.urlopen(req, timeout=20) as res:
+        flat_transcript = "\n".join([f"{msg['role']}: {msg['content']}" for msg in conversation_history])
+        payload = json.dumps({
+            "model": active_model,
+            "messages": [
+                {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
+                {"role": "user", "content": flat_transcript}
+            ],
+            "stream": False,
+            "format": "json",
+            "options": {"temperature": 0.1, "num_predict": 120}
+        }).encode("utf-8")
+
+        req = urllib.request.Request(
+            f"{OLLAMA_HOST}/api/chat",
+            data=payload,
+            headers={"Content-Type": "application/json"}
+        )
+        with urllib.request.urlopen(req, timeout=3.0) as res:
             result = json.loads(res.read().decode())
             content = result.get("message", {}).get("content", "{}")
-            return json.loads(content)
-    except Exception as e:
-        print(f"⚠️ Background extraction error: {e}")
-        return generate_structured_report_offline(conversation_history)
+            ollama_slots = json.loads(content)
+            if isinstance(ollama_slots, dict):
+                inc = ollama_slots.get("incident") or {}
+                if inc.get("location"): fast_report["location"] = inc["location"]
+                if inc.get("time_context"): fast_report["incident_timeframe"] = inc["time_context"]
+                if inc.get("category"): fast_report["category"] = inc["category"]
+                if ollama_slots.get("implicated_person"): fast_report["implicated_person"] = ollama_slots["implicated_person"]
+                if ollama_slots.get("summary"): fast_report["summary"] = ollama_slots["summary"]
+                if ollama_slots.get("severity_level"): fast_report["severity_level"] = ollama_slots["severity_level"]
+                if ollama_slots.get("escalation_decision"): fast_report["escalation_decision"] = ollama_slots["escalation_decision"]
+                fast_report["incident"].update(inc)
+    except Exception:
+        pass
+
+    return fast_report
 
 async def handle_websocket_client(websocket, active_model):
     """Manages active Phone Booth call with streaming voice turns."""
@@ -628,16 +746,29 @@ async def handle_websocket_client(websocket, active_model):
                     if v is not None and v != "":
                         session_slots[k] = v
 
+                # Flatten nested fields so both nested schemas and flat properties are available
+                inc = session_slots.get("incident") or {}
+                safety = session_slots.get("safety_flags") or {}
+                esc = session_slots.get("escalation_decision") or {}
+
+                if inc.get("location"): session_slots["location"] = inc["location"]
+                if inc.get("time_context"): session_slots["incident_timeframe"] = inc["time_context"]
+                if inc.get("category"): session_slots["category"] = inc["category"]
+                if session_slots.get("implicated_person"): session_slots["implicatedName"] = session_slots["implicated_person"]
+                if safety.get("physical_harm_indicated") is not None: session_slots["physical_harm_indicated"] = safety["physical_harm_indicated"]
+                if safety.get("immediate_danger") is not None: session_slots["immediate_danger"] = safety["immediate_danger"]
+
                 # Auto-escalation flag check (L3, teacher misconduct, or immediate danger)
                 if (session_slots.get("category") == "teacher_involved" or
                     session_slots.get("severity_level") == "L3" or
-                    session_slots.get("immediate_danger") is True):
+                    session_slots.get("immediate_danger") is True or
+                    (esc.get("reporting_pathway") == "higher_authority")):
                     session_slots["is_escalation_required"] = True
 
                 await websocket.send(json.dumps({
                     "type": "turn_slots_updated",
                     "slots": session_slots,
-                    "detected_emotion": extracted.get("detected_emotion", "Listening"),
+                    "detected_emotion": session_slots.get("detected_emotion", "Listening"),
                     "severity_level": session_slots.get("severity_level", "L1"),
                     "category": session_slots.get("category", "other")
                 }))

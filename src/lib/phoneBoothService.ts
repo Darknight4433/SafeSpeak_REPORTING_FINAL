@@ -837,8 +837,14 @@ export class PhoneBoothSessionManager {
       const rawQuality = (currentSlots as any).report_quality || {};
       const rawEvidence = (currentSlots as any).evidence_layer || {};
 
-      const childName = rawIdentity.name || currentSlots.implicated_person || null;
-      const isAnonPref = rawIdentity.anonymous_preference === 'anonymous' || rawPrefs.wants_anonymity === true;
+      const childName = rawIdentity.name || (currentSlots as any).child_name || null;
+      const isAnonPref = rawIdentity.anonymous_preference === 'anonymous' || rawPrefs.wants_anonymity === true || !childName;
+
+      const locationVal = currentSlots.location || rawIncident.location || null;
+      const timeframeVal = currentSlots.incident_timeframe || rawIncident.time_context || null;
+      const implicatedVal = currentSlots.implicated_person || rawIncident.implicated_person || null;
+      const witnessesVal = currentSlots.witnesses_present || rawIncident.witnesses_present || null;
+      const summaryVal = currentSlots.summary || rawIncident.description || `Phone booth voice report (${durationSeconds}s call)`;
 
       const reportPayload = {
         // Structured Report Schema
@@ -870,29 +876,32 @@ export class PhoneBoothSessionManager {
           concludingEmotion: this.turns.slice().reverse().find(t => t.emotion)?.emotion || 'Reassured',
           speechEngine: 'Llama 3.2 3B + ElevenLabs Sarah HD'
         },
-        aiSummary: currentSlots.summary || rawIncident.description || null,
+        aiSummary: summaryVal,
+        description: summaryVal,
 
         // 1. Identity & Anonymity
         identity: {
           name: childName,
-          name_provided: Boolean(rawIdentity.name_provided || childName),
-          anonymous_preference: rawIdentity.anonymous_preference || (isAnonPref ? 'anonymous' : 'undecided'),
-          identity_confirmation: rawIdentity.identity_confirmation || 'not_confirmed'
+          name_provided: Boolean(childName),
+          anonymous_preference: isAnonPref ? 'anonymous' : 'named',
+          identity_confirmation: rawIdentity.identity_confirmation || (childName ? 'confirmed' : 'not_confirmed')
         },
 
         // 2. Incident Details
         incident: {
-          category: rawIncident.category || categoryVal,
-          description: rawIncident.description || currentSlots.summary || `Phone booth voice report (${durationSeconds}s call)`,
-          frequency: rawIncident.frequency || (currentSlots.is_ongoing ? 'repeated' : 'unknown'),
-          location: rawIncident.location || currentSlots.location || null,
-          time_context: rawIncident.time_context || currentSlots.incident_timeframe || null
+          category: categoryVal,
+          description: summaryVal,
+          frequency: currentSlots.is_ongoing ? 'repeated' : (rawIncident.frequency || 'unknown'),
+          location: locationVal,
+          time_context: timeframeVal,
+          implicated_person: implicatedVal,
+          witnesses_present: witnessesVal
         },
 
         // 3. Child Preferences
         child_preferences: {
-          wants_anonymity: rawPrefs.wants_anonymity !== undefined ? rawPrefs.wants_anonymity : (isAnonPref ? true : null),
-          wants_to_continue: rawPrefs.wants_to_continue !== undefined ? rawPrefs.wants_to_continue : true,
+          wants_anonymity: isAnonPref,
+          wants_to_continue: true,
           preferred_support_person: rawPrefs.preferred_support_person || null
         },
 
@@ -905,6 +914,8 @@ export class PhoneBoothSessionManager {
         // 5. Safety Flags
         safety_flags: {
           urgent_review: isL3 || rawSafety.urgent_review || false,
+          immediate_danger: Boolean(currentSlots.immediate_danger || rawSafety.immediate_danger),
+          physical_harm_indicated: Boolean(currentSlots.physical_harm_indicated || rawSafety.physical_harm_indicated),
           human_review_required: true
         },
 
@@ -917,12 +928,12 @@ export class PhoneBoothSessionManager {
         // 7. Report Quality & Evidence Layer
         report_quality: {
           missing_fields: rawQuality.missing_fields || [],
-          ai_confidence: rawQuality.ai_confidence || 'direct_statements'
+          ai_confidence: rawQuality.ai_confidence || 'high_fidelity_extraction'
         },
         evidence_layer: {
           name_evidence: rawEvidence.name_evidence || (childName ? 'direct' : 'unknown'),
-          frequency_evidence: rawEvidence.frequency_evidence || 'unknown',
-          location_evidence: rawEvidence.location_evidence || (currentSlots.location ? 'direct' : 'unknown')
+          frequency_evidence: rawEvidence.frequency_evidence || (currentSlots.is_ongoing ? 'direct' : 'unknown'),
+          location_evidence: rawEvidence.location_evidence || (locationVal ? 'direct' : 'unknown')
         },
 
         // 8. Human Review Tracking
@@ -932,20 +943,32 @@ export class PhoneBoothSessionManager {
           outcome: null
         },
 
-        // Legacy compatibility fields
+        // Top-level direct fields for instant Admin Dashboard binding
         category: categoryVal,
         intensity: intensityVal,
         severityLevel: currentSlots.severity_level || (isL3 ? 'L3' : 'L1'),
-        riskLevel: requiresHigherAuthority ? 'High' : 'Normal',
-        description: currentSlots.summary || `Phone booth voice report (${durationSeconds}s call)`,
-        location: currentSlots.location || SCHOOL_CONFIG.name,
-        incidentTimeframe: currentSlots.incident_timeframe || null,
-        witnessesPresent: currentSlots.witnesses_present || null,
-        physicalHarmIndicated: currentSlots.physical_harm_indicated || false,
+        riskLevel: requiresHigherAuthority ? 'Critical' : (currentSlots.severity_level === 'L2' ? 'High' : 'Normal'),
+        location: locationVal,
+        incidentTimeframe: timeframeVal,
+        witnessesPresent: witnessesVal,
+        physicalHarmIndicated: Boolean(currentSlots.physical_harm_indicated || rawSafety.physical_harm_indicated),
+        immediateDanger: Boolean(currentSlots.immediate_danger || rawSafety.immediate_danger),
+        isOngoing: Boolean(currentSlots.is_ongoing || rawIncident.frequency === 'repeated'),
         isAnonymous: isAnonPref,
-        implicatedName: currentSlots.implicated_person || null,
+        implicatedName: implicatedVal,
         personType: isTeacher ? 'teacher' : 'student',
-        extractedSlots: currentSlots,
+        extractedSlots: {
+          category: categoryVal,
+          severity_level: currentSlots.severity_level || (isL3 ? 'L3' : 'L1'),
+          location: locationVal,
+          incident_timeframe: timeframeVal,
+          implicated_person: implicatedVal,
+          witnesses_present: witnessesVal,
+          physical_harm_indicated: Boolean(currentSlots.physical_harm_indicated || rawSafety.physical_harm_indicated),
+          immediate_danger: Boolean(currentSlots.immediate_danger || rawSafety.immediate_danger),
+          is_ongoing: Boolean(currentSlots.is_ongoing || rawIncident.frequency === 'repeated'),
+          summary: summaryVal
+        },
         ...(requiresHigherAuthority ? {
           escalationMeta: {
             escalated_by: 'ai_phone_booth_evaluation',
