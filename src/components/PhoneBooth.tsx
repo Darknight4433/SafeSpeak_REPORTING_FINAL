@@ -968,10 +968,11 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
                 <Input
                   value={tempWsUrl}
                   onChange={(e) => {
-                    setTempWsUrl(e.target.value);
+                    const clean = e.target.value.replace(/^(ws:\/+)+/i, 'ws://');
+                    setTempWsUrl(clean);
                     setTestResult(null);
                   }}
-                  placeholder="ws://192.168.10.44:8765"
+                  placeholder="ws://10.94.141.76:8765"
                   className="font-mono text-sm"
                 />
                 <Button
@@ -979,20 +980,26 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
                   variant="secondary"
                   size="sm"
                   onClick={async () => {
+                    let clean = tempWsUrl.trim();
+                    clean = clean.replace(/^(ws:\/+)+/i, 'ws://');
+                    if (!clean.startsWith('ws://') && !clean.startsWith('wss://')) {
+                      clean = `ws://${clean.replace(/^\/+/, '')}`;
+                    }
+                    setTempWsUrl(clean);
                     setIsTestingConnection(true);
                     setTestResult(null);
-                    const res = await phoneBoothManager.probeConnection(tempWsUrl);
+                    const res = await phoneBoothManager.probeConnection(clean);
                     setIsTestingConnection(false);
                     if (res.success) {
                       setTestResult({
                         success: true,
-                        message: `✅ Connected! Latency: ${res.latencyMs}ms. SafeSpeak AI is Online!`
+                        message: `✅ Connected! Latency: ${res.latencyMs}ms. SafeSpeak AI on RTX 3050 is Online!`
                       });
                       setIsConnected(true);
                     } else {
                       setTestResult({
                         success: false,
-                        message: `❌ ${res.error || 'Connection failed'}`
+                        message: `❌ ${res.error || 'Connection failed'}. (Tip: If using Opera browser, turn OFF the blue [VPN] badge in the address bar so it doesn't block local Wi-Fi)`
                       });
                       setIsConnected(false);
                     }
@@ -1012,17 +1019,17 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
               </div>
 
               {/* Quick Fill Preset Buttons */}
-              <div className="flex items-center gap-1.5 pt-1">
+              <div className="flex flex-wrap items-center gap-1.5 pt-1">
                 <span className="text-[10px] text-muted-foreground">Quick select:</span>
                 <button
                   type="button"
                   onClick={() => {
-                    setTempWsUrl('ws://192.168.10.44:8765');
+                    setTempWsUrl('ws://10.94.141.76:8765');
                     setTestResult(null);
                   }}
-                  className="text-[10px] px-2 py-0.5 rounded bg-muted hover:bg-muted/80 text-foreground font-mono border"
+                  className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 font-mono border border-emerald-500/30 font-semibold"
                 >
-                  Direct IP: 192.168.10.44
+                  RTX 3050 IP: 10.94.141.76
                 </button>
                 <button
                   type="button"
@@ -1045,9 +1052,11 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
                 }`}>
                   <p className="font-medium">{testResult.message}</p>
                   {!testResult.success && (
-                    <p className="text-[11px] text-muted-foreground mt-1">
-                      💡 If connection failed, make sure <strong>START-AI-SERVER.bat</strong> is running on the laptop and try the <strong>Direct IP</strong> option. Also verify Windows Defender Firewall allows port 8765.
-                    </p>
+                    <div className="text-[11px] text-muted-foreground mt-1 space-y-1">
+                      <p>
+                        💡 <strong>Crucial for Opera Browser:</strong> In your screenshot, the blue <strong>[VPN]</strong> badge is turned ON in your address bar! Opera's VPN routes your requests through external proxy servers and blocks access to local Wi-Fi IP addresses (like <code>10.94.141.76</code>). Click the blue <strong>[VPN]</strong> button in your browser address bar and turn it <strong>OFF</strong>.
+                      </p>
+                    </div>
                   )}
                 </div>
               )}
@@ -1060,14 +1069,19 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
             </Button>
             <Button
               onClick={async () => {
-                savePhoneBoothWsUrl(tempWsUrl);
-                setServerUrl(tempWsUrl);
+                let clean = tempWsUrl.trim();
+                clean = clean.replace(/^(ws:\/+)+/i, 'ws://');
+                if (!clean.startsWith('ws://') && !clean.startsWith('wss://')) {
+                  clean = `ws://${clean.replace(/^\/+/, '')}`;
+                }
+                savePhoneBoothWsUrl(clean);
+                setServerUrl(clean);
                 setIsSettingsOpen(false);
                 toast.success('AI Server address saved.');
-                const res = await phoneBoothManager.probeConnection(tempWsUrl);
+                const res = await phoneBoothManager.probeConnection(clean);
                 if (res.success) {
                   setIsConnected(true);
-                  toast.success('Connected to AI Assistant!');
+                  toast.success('Connected to RTX 3050 AI Assistant!');
                 }
               }}
               className="bg-emerald-600 hover:bg-emerald-700 text-white"
