@@ -28,7 +28,8 @@ import urllib.error
 
 # Server Configuration
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST_URL", "http://127.0.0.1:11434")
-TARGET_MODELS = ["qwen2.5:7b", "qwen2.5-coder:7b", "qwen2.5:3b", "qwen2.5:1.5b"]
+DEFAULT_MODEL = os.environ.get("SAFESPEAK_MODEL", "llama3.2:3b")
+TARGET_MODELS = [DEFAULT_MODEL, "llama3.2:3b", "qwen2.5:3b", "llama3.2:1b", "qwen2.5:1.5b", "qwen2.5:7b"]
 WS_PORT = int(os.environ.get("SAFESPEAK_WS_PORT", 8765))
 
 # Safeguarding Conversational Persona Prompt
@@ -159,23 +160,23 @@ def start_ollama_service():
     return False, []
 
 def select_best_model(available_models):
-    """Picks the best available Qwen 2.5 model or pulls target."""
+    """Picks the best available lightweight model or pulls target."""
     for target in TARGET_MODELS:
         for m in available_models:
             if target in m:
                 print(f"✅ Found active model: {m}")
                 return m
 
-    # If none found, pull the recommended 7B model
+    # If none found, pull the recommended fast model
     pull_target = TARGET_MODELS[0]
-    print(f"\n📦 Recommended model '{pull_target}' not found. Downloading via Ollama...")
-    print(f"   (Qwen 2.5 7B Q4_K_M ~4.7GB, optimized for RTX 3050 6GB VRAM)")
+    print(f"\n📦 Recommended fast model '{pull_target}' not found. Downloading via Ollama...")
+    print(f"   (Ultra-low latency model ~2.0 GB: instant voice replies at 100+ tokens/sec, ~2.4GB VRAM)")
     try:
         subprocess.run(["ollama", "pull", pull_target], check=True)
         return pull_target
     except Exception as e:
         print(f"⚠️ Failed to pull '{pull_target}': {e}. Trying lightweight fallback...")
-        fallback = TARGET_MODELS[-1]
+        fallback = "llama3.2:1b"
         try:
             subprocess.run(["ollama", "pull", fallback], check=True)
             return fallback

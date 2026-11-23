@@ -3,11 +3,11 @@ REM ============================================================================
 REM SafeSpeak Phone Booth - Secondary Laptop AI Server Launcher
 REM Runs Ollama + Qwen 2.5 7B + WebSocket Server on RTX 3050 6GB
 REM ==============================================================================
-title SafeSpeak Phone Booth AI Server (RTX 3050)
+title SafeSpeak Phone Booth AI Server (Fast Voice Engine)
 color 0A
 
 echo =====================================================================
-echo 🛡️  Starting SafeSpeak Phone Booth AI Server (Qwen 2.5 7B)
+echo 🛡️  Starting SafeSpeak Phone Booth AI Server (Llama 3.2 3B / Qwen)
 echo =====================================================================
 
 where python >nul 2>nul
