@@ -31,6 +31,13 @@ echo -e "${NC}"
 REPO_URL="https://github.com/Darknight4433/SafeSpeak_REPORTING_FINAL.git"
 TARGET_DIR="$HOME/SafeSpeak_REPORTING_FINAL"
 
+# 0. Clean Interrupted Locks & Self-Heal dpkg (in case terminal was closed midway)
+echo -e "${BLUE}▶ 0. Cleaning any interrupted package locks...${NC}"
+sudo killall apt apt-get dpkg 2>/dev/null || true
+sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock /var/cache/apt/archives/lock 2>/dev/null || true
+sudo dpkg --configure -a 2>/dev/null || true
+sudo apt-get install -f -y 2>/dev/null || true
+
 # 1. Check Internet Connection
 echo -e "${BLUE}▶ 1. Checking Internet Connection...${NC}"
 if ping -c 1 -W 3 github.com >/dev/null 2>&1 || ping -c 1 -W 3 8.8.8.8 >/dev/null 2>&1; then

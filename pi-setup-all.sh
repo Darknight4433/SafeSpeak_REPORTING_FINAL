@@ -55,23 +55,29 @@ echo "Architecture: $(uname -m)"
 echo "-----------------------------------------------------------------------"
 
 # ------------------------------------------------------------------------------
-# 1. Wait for any background apt/dpkg lock (common on fresh boots)
+# 1. Clean Stale Locks & Self-Heal Interrupted Installations (dpkg --configure -a)
 # ------------------------------------------------------------------------------
-wait_apt_locks() {
-    echo "Checking for background package managers..."
-    local timeout=60
+repair_and_wait_locks() {
+    echo "Healing any interrupted background package processes..."
+    sudo killall apt apt-get dpkg 2>/dev/null || true
+    sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock /var/cache/apt/archives/lock 2>/dev/null || true
+    sudo dpkg --configure -a 2>/dev/null || true
+    sudo apt-get install -f -y 2>/dev/null || true
+
+    local timeout=30
     while sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || sudo fuser /var/lib/apt/lists/lock >/dev/null 2>&1; do
-        echo "Waiting for apt background lock to clear (${timeout}s remaining)..."
+        echo "Waiting for package manager lock to clear (${timeout}s remaining)..."
         sleep 2
         timeout=$((timeout - 2))
         if [ $timeout -le 0 ]; then
-            echo "Apt wait timed out, continuing anyway..."
+            sudo killall apt apt-get dpkg 2>/dev/null || true
+            sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock 2>/dev/null || true
             break
         fi
     done
     return 0
 }
-run_step "Wait for Package Manager Lock" wait_apt_locks
+run_step "Self-Heal Interrupted Package Locks" repair_and_wait_locks
 
 # ------------------------------------------------------------------------------
 # 2. Update System Package Index
