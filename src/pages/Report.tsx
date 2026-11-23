@@ -21,6 +21,8 @@ import Footer from '@/components/Footer';
 import { Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { SCHOOL_CONFIG } from '@/config/school';
 import { checkOllamaStatus, type OllamaStatus, getCustomOllamaHost, setCustomOllamaHost, testOllamaHost, getOllamaBaseUrl } from '@/lib/ollamaService';
+import { PhoneBooth } from '@/components/PhoneBooth';
+import type { ExtractedReportSlots } from '@/lib/phoneBoothService';
 
 
 const categories = [
@@ -91,6 +93,7 @@ const formSchema = z.object({
 });
 
 const Report = () => {
+  const [reportingMode, setReportingMode] = useState<'booth' | 'manual'>('booth');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isAnonymous, setIsAnonymous] = useState(false);
   const [inputMode, setInputMode] = useState<'text' | 'voice'>('text');
@@ -132,6 +135,20 @@ const Report = () => {
 
   // Watch selected category to conditionally show fields like bullyName
   const category = form.watch('category');
+
+  const handleSwitchToTyping = (slots?: ExtractedReportSlots) => {
+    if (slots) {
+      if (slots.category) form.setValue('category', slots.category);
+      if (slots.location) form.setValue('location', slots.location);
+      if (slots.implicated_person) {
+        form.setValue('implicatedName', slots.implicated_person);
+        form.setValue('bullyName', slots.implicated_person);
+      }
+      if (slots.summary) form.setValue('description', slots.summary);
+    }
+    setReportingMode('manual');
+    toast.info('Switched to manual typing. Extracted details pre-filled.');
+  };
 
   // Map AI risk level to a friendly label shown to the user (neutral language)
   const mapRiskLabel = (r?: string) => {
@@ -1274,6 +1291,44 @@ const Report = () => {
             </p>
           </div>
 
+          {/* Mode Switch Tabs: Voice Phone Booth (Primary) vs. Manual Typing Form (Secondary) */}
+          <div className="flex items-center justify-center gap-3 p-1.5 rounded-2xl bg-muted/60 border max-w-md mx-auto shadow-sm">
+            <button
+              type="button"
+              onClick={() => setReportingMode('booth')}
+              className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-sm font-semibold transition-all ${
+                reportingMode === 'booth'
+                  ? 'bg-emerald-600 text-white shadow-md'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <Phone className="w-4 h-4" />
+              Voice Phone Booth (Primary)
+            </button>
+            <button
+              type="button"
+              onClick={() => setReportingMode('manual')}
+              className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-sm font-semibold transition-all ${
+                reportingMode === 'manual'
+                  ? 'bg-primary text-primary-foreground shadow-md'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <BookOpen className="w-4 h-4" />
+              Manual Form (Secondary)
+            </button>
+          </div>
+
+          {reportingMode === 'booth' ? (
+            <PhoneBooth
+              onSwitchToTyping={handleSwitchToTyping}
+              onReportSubmitted={(reportId) => {
+                toast.success(`Voice Report ${reportId} submitted successfully!`);
+              }}
+            />
+          ) : (
+            <>
+
           {/* Anonymous Toggle Card - Hidden if teacher/staff involved (mandatory named report) */}
           {!(liveKeyword?.patternId === 'teacher_involved' && form.getValues('personType') !== 'student') && (
             <Card className="border-primary/20 shadow-lg animate-fade-in transition-all duration-300 hover:shadow-xl hover:scale-[1.01] hover:border-primary/40">
@@ -2010,6 +2065,8 @@ const Report = () => {
               </Button>
             </form>
           </Form>
+          </>
+          )}
 
           {/* Escalation confirmation dialog: require identity when threats are detected */}
           <Dialog open={escalationOpen} onOpenChange={(open) => { if (!open) cancelEscalation(); setEscalationOpen(open); }}>

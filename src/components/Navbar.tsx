@@ -21,11 +21,19 @@ const Navbar = () => {
             Privacy
           </Link>
           <Link to="/report">
-            <Button>Report Now</Button>
+            <Button variant="outline" className="border-emerald-500/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 gap-1.5">
+              📞 Voice Booth
+            </Button>
+          </Link>
+          <Link to="/report">
+            <Button>Report</Button>
           </Link>
         </div>
 
-        <div className="md:hidden">
+        <div className="md:hidden flex items-center gap-2">
+          <Link to="/report">
+            <Button size="sm" variant="outline" className="border-emerald-500/30 text-emerald-600">📞 Booth</Button>
+          </Link>
           <Link to="/report">
             <Button size="sm">Report</Button>
           </Link>
