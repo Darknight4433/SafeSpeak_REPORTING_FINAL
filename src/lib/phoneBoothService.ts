@@ -368,9 +368,67 @@ export class PhoneBoothSessionManager {
   }
 
   /**
+   * Auto-probes candidate URLs in parallel and returns the first responding server address
+   */
+  public async findActiveServerUrl(preferredUrl?: string): Promise<string> {
+    const candidates = Array.from(new Set([
+      preferredUrl,
+      getSavedPhoneBoothWsUrl(),
+      'ws://desktop-4l1f9jg.local:8765',
+      'ws://192.168.10.39:8765',
+      'ws://192.168.10.44:8765'
+    ].filter(Boolean) as string[]));
+
+    return new Promise((resolve) => {
+      let resolved = false;
+      let failedCount = 0;
+
+      const tryCandidate = (url: string) => {
+        try {
+          let clean = url.trim();
+          if (!clean.startsWith('ws://') && !clean.startsWith('wss://')) clean = `ws://${clean}`;
+          const socket = new WebSocket(clean);
+          const t = setTimeout(() => {
+            try { socket.close(); } catch {}
+            onFail();
+          }, 1500);
+
+          socket.onopen = () => {
+            if (!resolved) {
+              resolved = true;
+              clearTimeout(t);
+              try { socket.close(); } catch {}
+              console.log(`🎯 Auto-discovered active SafeSpeak AI server at: ${clean}`);
+              savePhoneBoothWsUrl(clean);
+              resolve(clean);
+            }
+          };
+
+          socket.onerror = () => {
+            clearTimeout(t);
+            onFail();
+          };
+        } catch {
+          onFail();
+        }
+      };
+
+      const onFail = () => {
+        failedCount++;
+        if (failedCount >= candidates.length && !resolved) {
+          resolved = true;
+          resolve(candidates[0] || 'ws://192.168.10.39:8765');
+        }
+      };
+
+      candidates.forEach(tryCandidate);
+    });
+  }
+
+  /**
    * Starts a Phone Booth call session:
    * 1. Creates a real-time conversation record in Firebase
-   * 2. Opens WebSocket connection to secondary laptop AI
+   * 2. Auto-discovers and connects WebSocket to secondary laptop AI
    * 3. Sends call_started event
    */
   public async startCall(serverUrl: string = getSavedPhoneBoothWsUrl()): Promise<boolean> {
@@ -415,14 +473,16 @@ export class PhoneBoothSessionManager {
       console.warn('Firebase conversation init error (will continue locally):', fbErr);
     }
 
-    // 2. Connect WebSocket to Secondary Laptop
+    // 2. Discover active server and connect
+    const targetWsUrl = await this.findActiveServerUrl(serverUrl);
+
     return new Promise((resolve) => {
       try {
-        console.log(`Connecting to SafeSpeak AI Voice Server: ${serverUrl}`);
-        this.ws = new WebSocket(serverUrl);
+        console.log(`Connecting to SafeSpeak AI Voice Server: ${targetWsUrl}`);
+        this.ws = new WebSocket(targetWsUrl);
 
         this.ws.onopen = () => {
-          console.log('✅ WebSocket connection established with AI Voice Engine');
+          console.log(`✅ WebSocket connection established with AI Voice Engine at ${targetWsUrl}`);
           this.notify({ isConnected: true, error: null });
           resolve(true);
         };
