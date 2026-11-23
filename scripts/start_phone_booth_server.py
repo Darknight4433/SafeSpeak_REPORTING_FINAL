@@ -47,18 +47,32 @@ CRITICAL CHILD SAFEGUARDING INSTRUCTIONS:
 """
 
 EXTRACTION_SYSTEM_PROMPT = """You are the SafeSpeak Safeguarding Data Analyst.
-Analyze the following student-AI conversation transcript from the school phone booth.
-Extract the structured fields into valid JSON:
+Your role is to objectively extract incident safeguarding facts from the student-AI conversation transcript.
+
+CRITICAL EXTRACTION RULES:
+1. ONLY extract information explicitly stated by the student. NEVER assume, guess, or hallucinate names, locations, or actions.
+2. If the student did not mention an item, return null for that field.
+3. Keep the factual summary strictly objective, neutral, and professional for school child-protection officers.
+4. Categorize risk severity:
+   - "L3": Urgent danger (self-harm, sexual abuse, weapons, teacher/staff abuse).
+   - "L2": Moderate concern (bullying, harassment, ongoing peer conflicts).
+   - "L1": Mild concern (stress, academic pressure, mild emotional distress).
+   - "L0": General inquiries, prank, or neutral disclosures.
+
+Respond ONLY with valid JSON matching this schema:
 {
-  "detected_emotion": "Primary emotion (e.g. Scared, Anxious, Hurt, Lonely, Overwhelmed, Relieved, Heard)",
+  "detected_emotion": string,
   "category": "bullying" | "teacher_involved" | "physical_threat" | "self_harm" | "academic" | "other",
-  "inquiry_state": "acknowledging" | "probing_location" | "probing_parties" | "probing_frequency" | "comforting_closing",
+  "severity_level": "L0" | "L1" | "L2" | "L3",
   "location": string or null,
+  "incident_timeframe": string or null,
   "implicated_person": string or null,
-  "witnesses": string or null,
+  "witnesses_present": string or null,
+  "physical_harm_indicated": boolean,
   "is_ongoing": boolean or null,
-  "immediate_danger": boolean or null,
-  "summary": "1-2 sentence neutral factual summary of what the student reported"
+  "immediate_danger": boolean,
+  "is_escalation_required": boolean,
+  "summary": "1-2 sentence objective factual summary"
 }
 """
 
@@ -263,12 +277,16 @@ async def handle_websocket_client(websocket, active_model):
 
     conversation_history = []
     session_slots = {
-        "category": None,
+        "category": "other",
+        "severity_level": "L1",
         "location": None,
+        "incident_timeframe": None,
         "implicated_person": None,
-        "witnesses": None,
+        "witnesses_present": None,
+        "physical_harm_indicated": False,
         "is_ongoing": None,
         "immediate_danger": False,
+        "is_escalation_required": False,
         "summary": ""
     }
 
@@ -352,11 +370,18 @@ async def handle_websocket_client(websocket, active_model):
                             if v is not None and v != "":
                                 session_slots[k] = v
 
+                        # Auto-escalation flag check (L3, teacher misconduct, or immediate danger)
+                        if (session_slots.get("category") == "teacher_involved" or
+                            session_slots.get("severity_level") == "L3" or
+                            session_slots.get("immediate_danger") is True):
+                            session_slots["is_escalation_required"] = True
+
                         await websocket.send(json.dumps({
                             "type": "turn_slots_updated",
                             "slots": session_slots,
                             "detected_emotion": extracted.get("detected_emotion", "Listening"),
-                            "category": extracted.get("category", "other")
+                            "severity_level": session_slots.get("severity_level", "L1"),
+                            "category": session_slots.get("category", "other")
                         }))
 
                     asyncio.create_task(async_extract())

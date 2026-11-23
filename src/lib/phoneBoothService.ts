@@ -13,11 +13,15 @@ export interface PhoneBoothTurn {
 
 export interface ExtractedReportSlots {
   category?: string | null;
+  severity_level?: 'L0' | 'L1' | 'L2' | 'L3' | null;
   location?: string | null;
+  incident_timeframe?: string | null;
   implicated_person?: string | null;
-  witnesses?: string | null;
+  witnesses_present?: string | null;
+  physical_harm_indicated?: boolean | null;
   is_ongoing?: boolean | null;
   immediate_danger?: boolean | null;
+  is_escalation_required?: boolean | null;
   summary?: string;
 }
 
@@ -343,14 +347,34 @@ export class PhoneBoothSessionManager {
       }
     }
 
-    // 2. Transmit to secondary laptop AI over WebSocket
+    // 2. Transmit to secondary laptop AI over WebSocket or run client-side offline extractor
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({
         type: 'student_speech',
         text: text.trim()
       }));
     } else {
-      console.warn('WebSocket not open. Preserving speech locally.');
+      console.warn('WebSocket not open. Preserving speech and running local safeguarding extractor...');
+      try {
+        const { analyzeReportDemo } = await import('./safeSpeakAI');
+        const localAnalysis = await analyzeReportDemo(text.trim());
+        const isEscalate = localAnalysis.risk_level === 'L3';
+
+        const offlineSlots: ExtractedReportSlots = {
+          category: localAnalysis.category,
+          severity_level: localAnalysis.risk_level,
+          summary: text.trim(),
+          is_escalation_required: isEscalate
+        };
+
+        this.notify({
+          categoryGuess: localAnalysis.category,
+          currentEmotion: localAnalysis.sentiment || 'Heard',
+          extractedSlots: offlineSlots
+        });
+      } catch (e) {
+        console.warn('Offline extraction error:', e);
+      }
     }
   }
 
@@ -390,16 +414,21 @@ export class PhoneBoothSessionManager {
     // 3. Write Synthesized Report to Firebase
     try {
       const isTeacher = currentSlots.category === 'teacher_involved' || (currentSlots.implicated_person && /teacher|staff|principal|coach|sir|madam|miss/i.test(currentSlots.implicated_person));
+      const isL3 = currentSlots.severity_level === 'L3' || currentSlots.is_escalation_required;
       const categoryVal = currentSlots.category || (isTeacher ? 'teacher_involved' : 'safety');
-      const intensityVal = currentSlots.immediate_danger ? 'extreme' : 'medium';
+      const intensityVal = isL3 || currentSlots.immediate_danger ? 'extreme' : currentSlots.severity_level === 'L2' ? 'high' : 'medium';
 
       const reportPayload = {
         reportId: reportIdStr,
         reportNumber: this.currentReportNumber,
         category: categoryVal,
         intensity: intensityVal,
+        severityLevel: currentSlots.severity_level || (isL3 ? 'L3' : 'L1'),
         description: currentSlots.summary || `Phone booth voice report (${durationSeconds}s call)`,
         location: currentSlots.location || SCHOOL_CONFIG.name,
+        incidentTimeframe: currentSlots.incident_timeframe || null,
+        witnessesPresent: currentSlots.witnesses_present || null,
+        physicalHarmIndicated: currentSlots.physical_harm_indicated || false,
         school: SCHOOL_CONFIG.name,
         isAnonymous: true,
         implicatedName: currentSlots.implicated_person || null,
@@ -411,8 +440,8 @@ export class PhoneBoothSessionManager {
         extractedSlots: currentSlots
       };
 
-      // Push to standard reports or higher authority
-      const targetNode = isTeacher ? 'higher_authority_reports' : 'reports';
+      // Push to standard reports or higher authority (for teacher misconduct or extreme harm)
+      const targetNode = (isTeacher || isL3) ? 'higher_authority_reports' : 'reports';
       const pushed = await push(ref(database, targetNode), reportPayload);
       savedReportKey = pushed.key;
 

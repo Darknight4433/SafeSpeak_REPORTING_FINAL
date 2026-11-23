@@ -504,31 +504,48 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
                   <div className="flex items-center justify-between">
                     <span className="font-semibold text-muted-foreground flex items-center gap-1.5 uppercase tracking-wider text-[11px]">
                       <Shield className="w-3.5 h-3.5 text-emerald-500" />
-                      Auto-Structured for School Counselors
+                      Auto-Structured Report Details (Updating Live in Background)
                     </span>
-                    <Badge variant="outline" className="text-[10px] bg-emerald-500/10 text-emerald-600">
-                      Syncing to Firebase
-                    </Badge>
+                    <div className="flex items-center gap-2">
+                      {extractedSlots.severity_level && (
+                        <Badge variant="outline" className={`text-[10px] ${
+                          extractedSlots.severity_level === 'L3' ? 'border-red-500 text-red-600 bg-red-500/10' :
+                          extractedSlots.severity_level === 'L2' ? 'border-orange-500 text-orange-600 bg-orange-500/10' :
+                          'border-blue-500 text-blue-600 bg-blue-500/10'
+                        }`}>
+                          Risk: {extractedSlots.severity_level}
+                        </Badge>
+                      )}
+                      <Badge variant="outline" className="text-[10px] bg-emerald-500/10 text-emerald-600 border-emerald-500/20">
+                        Syncing to Firebase
+                      </Badge>
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
                     <div className="p-2 rounded bg-muted/40 border">
-                      <span className="text-muted-foreground block text-[10px]">Concern Type</span>
+                      <span className="text-muted-foreground block text-[10px]">Concern Category</span>
                       <span className="font-bold capitalize">{extractedSlots.category || 'Analyzing...'}</span>
                     </div>
                     <div className="p-2 rounded bg-muted/40 border">
                       <span className="text-muted-foreground block text-[10px]">Location</span>
-                      <span className="font-semibold">{extractedSlots.location || 'Optional / Unspecified'}</span>
+                      <span className="font-semibold">{extractedSlots.location || 'Optional'}</span>
                     </div>
                     <div className="p-2 rounded bg-muted/40 border">
-                      <span className="text-muted-foreground block text-[10px]">Person Mentioned</span>
+                      <span className="text-muted-foreground block text-[10px]">Timeframe</span>
+                      <span className="font-semibold">{extractedSlots.incident_timeframe || 'Optional'}</span>
+                    </div>
+                    <div className="p-2 rounded bg-muted/40 border">
+                      <span className="text-muted-foreground block text-[10px]">Persons Mentioned</span>
                       <span className="font-semibold">{extractedSlots.implicated_person || 'Optional'}</span>
                     </div>
-                    <div className="p-2 rounded bg-muted/40 border">
-                      <span className="text-muted-foreground block text-[10px]">Ongoing?</span>
-                      <span className="font-semibold">{extractedSlots.is_ongoing ? 'Yes' : 'Unspecified'}</span>
-                    </div>
                   </div>
+
+                  {extractedSlots.summary && (
+                    <div className="text-xs text-muted-foreground pt-1.5 border-t border-muted/60 italic">
+                      &ldquo;{extractedSlots.summary}&rdquo;
+                    </div>
+                  )}
                 </div>
               )}
             </div>
