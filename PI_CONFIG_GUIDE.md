@@ -16,23 +16,28 @@ This guide walks you through configuring your **Raspberry Pi (Pi 4 or Pi 5)** as
 
 ---
 
-## 2. One-Command Automated Pi Setup
+## 2. One-Tap Automated Pi Setup (Resilient & All-Out)
 
-Clone or copy the SafeSpeak project to your Raspberry Pi, open a terminal, and run:
+Clone or pull the SafeSpeak project to your Raspberry Pi, open a terminal, and run:
 
 ```bash
-chmod +x ./scripts/setup_pi.sh
-./scripts/setup_pi.sh
+chmod +x ./pi-setup-all.sh
+./pi-setup-all.sh
 ```
 
-### What `setup_pi.sh` Automatically Does:
-1. **Installs System Dependencies**: ALSA sound tools, GTK3, speech-dispatcher, unclutter, and ffmpeg.
-2. **Configures Permissions**: Adds your Pi user to `audio`, `video`, `input`, and `gpio` groups so Electron can access the handset mic and speaker without permission popups.
-3. **Disables Screen Sleep / Blanking**: Prevents the screen from turning off or going to sleep 24/7.
-4. **Hides Mouse Cursor**: Automatically hides the cursor after 1 second of touchscreen inactivity.
-5. **Calibrates Audio Levels**: Unmutes and sets handset mic and speaker volume to 85%.
-6. **Compiles Production Bundle**: Runs `npm install` and `npm run build`.
-7. **Installs Autostart Kiosk**: Generates `~/.config/autostart/safespeak-phone-booth.desktop` so SafeSpeak launches into fullscreen locked kiosk mode whenever the Pi powers on.
+> [!TIP]
+> **Resilient Design**: Even if individual packages differ between Debian Bookworm and Bullseye or minor commands throw a warning, `pi-setup-all.sh` will automatically log the warning, continue to the next step without aborting, and output a complete execution summary!
+
+### What `pi-setup-all.sh` Automatically Does:
+1. **Handles Background Package Locks**: Automatically waits for background `apt` locks to clear before proceeding.
+2. **Installs System Dependencies**: ALSA sound tools, GTK3, `speech-dispatcher`, `espeak-ng`, `unclutter`, and `ffmpeg`.
+3. **Installs / Upgrades Node.js**: Ensures Node.js 20.x is active.
+4. **Configures Permissions**: Adds your Pi user to `audio`, `video`, `input`, and `gpio` groups so Electron can access the handset mic and speaker without permission popups.
+5. **Disables Screen Sleep / Blanking**: Prevents the screen from turning off or going to sleep 24/7 (both X11 and Wayland).
+6. **Hides Mouse Cursor**: Automatically hides the cursor after 1 second of touchscreen inactivity.
+7. **Calibrates Audio Levels**: Unmutes and sets handset mic and speaker volume to 85%.
+8. **Compiles Production Bundle**: Runs `npm install` and compiles the client bundle (`dist/`).
+9. **Installs Autostart & Desktop Shortcut**: Creates both `~/.config/autostart/safespeak-phone-booth.desktop` and a 1-click icon on the Raspberry Pi desktop.
 
 ---
 
