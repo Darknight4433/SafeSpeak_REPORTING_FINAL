@@ -71,7 +71,36 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
   const turnsEndRef = useRef<HTMLDivElement | null>(null);
   const durationTimerRef = useRef<number | null>(null);
   const countdownTimerRef = useRef<number | null>(null);
+  const autoStartTimerRef = useRef<number | null>(null);
+  const speechSilenceTimeoutRef = useRef<number | null>(null);
   const [idleCountdown, setIdleCountdown] = useState<number | null>(null);
+  const [autoStartCountdown, setAutoStartCountdown] = useState<number | null>(8);
+
+  // Auto-connect to SafeSpeak AI after 8 seconds on the welcome screen
+  useEffect(() => {
+    if (callState === 'idle') {
+      setAutoStartCountdown(8);
+      autoStartTimerRef.current = window.setInterval(() => {
+        setAutoStartCountdown((prev) => {
+          if (prev !== null && prev <= 1) {
+            clearInterval(autoStartTimerRef.current as number);
+            handlePickUp();
+            return null;
+          }
+          return prev !== null ? prev - 1 : null;
+        });
+      }, 1000);
+    } else {
+      if (autoStartTimerRef.current) {
+        clearInterval(autoStartTimerRef.current);
+        autoStartTimerRef.current = null;
+      }
+      setAutoStartCountdown(null);
+    }
+    return () => {
+      if (autoStartTimerRef.current) clearInterval(autoStartTimerRef.current);
+    };
+  }, [callState, serverUrl]);
 
   // Background Connectivity Health-Check when idle
   useEffect(() => {
@@ -182,10 +211,12 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
           if (event.results[i].isFinal) {
             const spoken = event.results[i][0].transcript.trim();
             if (spoken.length > 0) {
+              if (speechSilenceTimeoutRef.current) clearTimeout(speechSilenceTimeoutRef.current);
               console.log('🎤 Student said:', spoken);
               setLastStudentSpeech(spoken);
               setInterimStudentText('');
               phoneBoothManager.sendStudentSpeech(spoken);
+              return;
             }
           } else {
             interim += event.results[i][0].transcript;
@@ -193,6 +224,17 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
         }
         if (interim.trim()) {
           setInterimStudentText(interim.trim());
+          // Fast silence auto-dispatch (750ms) for snappy, natural turn-taking
+          if (speechSilenceTimeoutRef.current) clearTimeout(speechSilenceTimeoutRef.current);
+          speechSilenceTimeoutRef.current = window.setTimeout(() => {
+            const spoken = interim.trim();
+            if (spoken.length > 1) {
+              console.log('⚡ Fast silence auto-dispatch:', spoken);
+              setLastStudentSpeech(spoken);
+              setInterimStudentText('');
+              phoneBoothManager.sendStudentSpeech(spoken);
+            }
+          }, 750);
         }
       };
 
@@ -214,6 +256,12 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
 
   // Start Call Handler
   const handlePickUp = async () => {
+    if (autoStartTimerRef.current) {
+      clearInterval(autoStartTimerRef.current);
+      autoStartTimerRef.current = null;
+    }
+    setAutoStartCountdown(null);
+
     setCallState('connecting');
     setSubmittedReportId(null);
     setTurns([]);
@@ -305,6 +353,10 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
                   {isConnected ? <Wifi className="w-3 h-3 mr-1" /> : <WifiOff className="w-3 h-3 mr-1" />}
                   {isConnected ? "AI Assistant Ready" : "Offline Fallback Ready"}
                 </Badge>
+                <Badge variant="outline" className="text-xs bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30 hidden md:flex items-center gap-1">
+                  <Volume2 className="w-3 h-3 text-purple-500" />
+                  ElevenLabs Voice (Rotated)
+                </Badge>
               </div>
               <p className="text-xs text-muted-foreground hidden sm:block">
                 Automated AI support • Direct review by trained school counselors • No forced details
@@ -383,6 +435,14 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
                 </p>
               </div>
 
+              {/* Auto-start Countdown Notification */}
+              {autoStartCountdown !== null && (
+                <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 text-xs font-semibold animate-pulse">
+                  <Sparkles className="w-4 h-4 text-emerald-500" />
+                  Auto-connecting to SafeSpeak AI in <strong>{autoStartCountdown}s</strong>... (Tap anywhere to start now)
+                </div>
+              )}
+
               {/* Big Physical/Touch Button */}
               <div className="pt-2">
                 <Button
@@ -391,7 +451,7 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
                   className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-xl shadow-emerald-600/30 px-10 py-7 text-xl font-bold rounded-full gap-3 transition-transform hover:scale-105 active:scale-95"
                 >
                   <Phone className="w-7 h-7" />
-                  Pick Up Phone (Start Call)
+                  Pick Up Phone {autoStartCountdown !== null ? `(${autoStartCountdown}s)` : ''}
                 </Button>
               </div>
 

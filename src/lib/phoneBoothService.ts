@@ -45,6 +45,15 @@ export interface PhoneBoothState {
 const DEFAULT_WS_URL = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_PHONE_BOOTH_WS_URL) || 'ws://127.0.0.1:8765';
 const STORAGE_KEY_WS = 'safespeak_phone_booth_ws';
 
+// ElevenLabs Ultra-Realistic Spoken Voice Engine with Multi-Key Rotation
+export const ELEVEN_LABS_KEYS = [
+  'sk_8fde097b04c48a06ce5631baed05ea4dc4b9ea69df463597',
+  'sk_ca770c72b95cb453420917026a970f32dd2ff2fc57c1b551',
+  'sk_0a20833dd98773b18282f07fb2da25ea1ef68e68b1b43e6e',
+  'sk_f017c44fdd87a3f70b6c1b4e18bca9634185b96b8964063a'
+];
+export const ELEVEN_LABS_VOICE_ID = '21m00Tcm4TlvDq8ikWAM'; // Rachel (Warm, empathetic, natural)
+
 export function getSavedPhoneBoothWsUrl(): string {
   if (typeof window === 'undefined') return DEFAULT_WS_URL;
   try {
@@ -81,6 +90,8 @@ export class PhoneBoothSessionManager {
   private speechQueue: string[] = [];
   private isProcessingQueue: boolean = false;
   private currentAgentBubbleText: string = "";
+  private currentAudio: HTMLAudioElement | null = null;
+  private currentKeyIndex: number = 0;
 
   public subscribe(fn: (state: Partial<PhoneBoothState>) => void) {
     this.listeners.push(fn);
@@ -94,31 +105,115 @@ export class PhoneBoothSessionManager {
   }
 
   /**
-   * Phase 3 Streaming TTS Queue
-   * Plays sentences in FIFO order as soon as they are streamed from the server.
+   * Fetches high-quality human speech from ElevenLabs with multi-key rotation
    */
-  private processSpeechQueue() {
-    if (this.isProcessingQueue || this.speechQueue.length === 0) return;
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+  private async fetchElevenLabsAudio(text: string): Promise<string | null> {
+    if (typeof window === 'undefined') return null;
+    const maxAttempts = ELEVEN_LABS_KEYS.length;
 
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const apiKey = ELEVEN_LABS_KEYS[this.currentKeyIndex];
+      try {
+        const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${ELEVEN_LABS_VOICE_ID}/stream?optimize_streaming_latency=4`, {
+          method: 'POST',
+          headers: {
+            'Accept': 'audio/mpeg',
+            'Content-Type': 'application/json',
+            'xi-api-key': apiKey
+          },
+          body: JSON.stringify({
+            text: text,
+            model_id: 'eleven_turbo_v2_5', // Fastest model for conversational AI (<250ms)
+            voice_settings: {
+              stability: 0.5,
+              similarity_boost: 0.8,
+              style: 0.0,
+              use_speaker_boost: true
+            }
+          })
+        });
+
+        if (response.ok) {
+          const blob = await response.blob();
+          return URL.createObjectURL(blob);
+        } else {
+          console.warn(`ElevenLabs key #${this.currentKeyIndex + 1} status: ${response.status}. Rotating key...`);
+          this.currentKeyIndex = (this.currentKeyIndex + 1) % ELEVEN_LABS_KEYS.length;
+        }
+      } catch (err) {
+        console.warn(`ElevenLabs key #${this.currentKeyIndex + 1} network error:`, err);
+        this.currentKeyIndex = (this.currentKeyIndex + 1) % ELEVEN_LABS_KEYS.length;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Phase 3 Streaming TTS Queue
+   * Prioritizes ElevenLabs ultra-realistic human voice; falls back to browser TTS if offline.
+   */
+  private async processSpeechQueue() {
+    if (this.isProcessingQueue || this.speechQueue.length === 0) return;
     this.isProcessingQueue = true;
     const textToSpeak = this.speechQueue.shift()!;
 
+    this.notify({ isAgentSpeaking: true, currentAgentSentence: textToSpeak });
+
+    // 1. Try ElevenLabs Ultra-Realistic Human Speech first
+    try {
+      const audioUrl = await this.fetchElevenLabsAudio(textToSpeak);
+      if (audioUrl) {
+        const audio = new Audio(audioUrl);
+        this.currentAudio = audio;
+
+        audio.onended = () => {
+          URL.revokeObjectURL(audioUrl);
+          this.currentAudio = null;
+          this.isProcessingQueue = false;
+          if (this.speechQueue.length > 0) {
+            this.processSpeechQueue();
+          } else {
+            this.notify({ isAgentSpeaking: false, currentAgentSentence: '' });
+          }
+        };
+
+        audio.onerror = () => {
+          URL.revokeObjectURL(audioUrl);
+          this.currentAudio = null;
+          this.isProcessingQueue = false;
+          this.playBrowserTTSFallback(textToSpeak);
+        };
+
+        await audio.play();
+        return;
+      }
+    } catch (e) {
+      console.warn('ElevenLabs playback error, using fallback:', e);
+    }
+
+    // 2. Failure-Safe Fallback to Browser SpeechSynthesis
+    this.playBrowserTTSFallback(textToSpeak);
+  }
+
+  private playBrowserTTSFallback(textToSpeak: string) {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+      this.isProcessingQueue = false;
+      this.notify({ isAgentSpeaking: false, currentAgentSentence: '' });
+      return;
+    }
+
     try {
       const utterance = new SpeechSynthesisUtterance(textToSpeak);
-      utterance.rate = 0.95; // Gentle, understandable rate for students
-      utterance.pitch = 1.05; // Warm, supportive pitch
+      utterance.rate = 0.95;
+      utterance.pitch = 1.05;
       utterance.lang = 'en-US';
 
-      // Pick natural or child-friendly voice if available
       const voices = window.speechSynthesis.getVoices();
       const preferred = voices.find(v => 
         (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('Karen')) 
         && v.lang.startsWith('en')
       );
       if (preferred) utterance.voice = preferred;
-
-      this.notify({ isAgentSpeaking: true, currentAgentSentence: textToSpeak });
 
       utterance.onend = () => {
         this.isProcessingQueue = false;
@@ -140,22 +235,28 @@ export class PhoneBoothSessionManager {
 
       window.speechSynthesis.speak(utterance);
     } catch (e) {
-      console.warn('TTS playback error:', e);
       this.isProcessingQueue = false;
       this.notify({ isAgentSpeaking: false, currentAgentSentence: '' });
     }
   }
 
   /**
-   * Immediately halts all speech synthesis (Barge-In)
+   * Immediately halts all speech synthesis (Barge-In Interruption)
    */
   public stopSpeaking() {
     this.speechQueue = [];
     this.isProcessingQueue = false;
+    if (this.currentAudio) {
+      try {
+        this.currentAudio.pause();
+        this.currentAudio.currentTime = 0;
+      } catch {}
+      this.currentAudio = null;
+    }
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
-      this.notify({ isAgentSpeaking: false, currentAgentSentence: '' });
     }
+    this.notify({ isAgentSpeaking: false, currentAgentSentence: '' });
   }
 
   /**
