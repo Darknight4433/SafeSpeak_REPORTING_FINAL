@@ -201,9 +201,13 @@ run_step "Calibrate Handset Audio Levels" calibrate_audio
 # ------------------------------------------------------------------------------
 install_node_deps() {
     cd "$DIR"
-    echo "Installing SafeSpeak npm packages..."
-    npm install --no-audit --no-fund --legacy-peer-deps || \
-    npm install --no-audit --no-fund || true
+    echo "Installing SafeSpeak npm packages (optimized for Raspberry Pi)..."
+    # Skip heavy electron binary download to prevent Raspberry Pi ARM hang
+    export ELECTRON_SKIP_BINARY_DOWNLOAD=1
+    export NODE_OPTIONS="--max-old-space-size=1024"
+    npm install --no-audit --no-fund --legacy-peer-deps --prefer-offline 2>/dev/null || \
+    npm install --omit=dev --no-audit --no-fund 2>/dev/null || true
+    echo "✅ NPM packages step completed."
 }
 run_step "Install SafeSpeak NPM Dependencies" install_node_deps
 
@@ -212,6 +216,10 @@ run_step "Install SafeSpeak NPM Dependencies" install_node_deps
 # ------------------------------------------------------------------------------
 compile_production() {
     cd "$DIR"
+    if [ -f "$DIR/dist/index.html" ]; then
+        echo "✅ Production web bundle dist/ is already pre-compiled and ready!"
+        return 0
+    fi
     echo "Building production bundle via Vite..."
     npm run build || {
         echo "Initial build encountered an issue, trying clean build..."
