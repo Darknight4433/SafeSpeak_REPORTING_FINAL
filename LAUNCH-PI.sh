@@ -48,8 +48,9 @@ $BROWSER_CMD \
     --disable-infobars \
     --check-for-update-interval=31536000 \
     --autoplay-policy=no-user-gesture-required \
+    --use-fake-ui-for-media-stream \
     --touch-events=enabled \
     --disable-pinch \
     --overscroll-history-navigation=0 \
     --enable-speech-dispatcher \
-    "http://localhost:8080/#/booth"
+    "http://localhost:8080"
