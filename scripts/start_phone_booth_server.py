@@ -29,7 +29,7 @@ import urllib.error
 # Server Configuration
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST_URL", "http://127.0.0.1:11434")
 DEFAULT_MODEL = os.environ.get("SAFESPEAK_MODEL", "llama3.2:3b")
-TARGET_MODELS = [DEFAULT_MODEL, "llama3.2:3b", "qwen2.5:3b", "llama3.2:1b", "qwen2.5:1.5b", "qwen2.5:7b"]
+TARGET_MODELS = [DEFAULT_MODEL, "llama3.2:3b", "qwen2.5:3b", "llama3.2:1b", "qwen2.5:1.5b"]
 WS_PORT = int(os.environ.get("SAFESPEAK_WS_PORT", 8765))
 
 # Safeguarding Conversational Persona Prompt
