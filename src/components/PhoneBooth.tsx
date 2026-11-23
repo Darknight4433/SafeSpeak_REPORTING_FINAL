@@ -490,13 +490,11 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
                 </p>
               </div>
 
-              {/* Auto-start Countdown Notification */}
-              {autoStartCountdown !== null && (
-                <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 text-xs font-semibold animate-pulse">
-                  <Sparkles className="w-4 h-4 text-emerald-500" />
-                  Auto-connecting to SafeSpeak AI in <strong>{autoStartCountdown}s</strong>... (Tap anywhere to start now)
-                </div>
-              )}
+              {/* Auto-start Notification */}
+              <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 text-xs font-semibold animate-pulse">
+                <Sparkles className="w-4 h-4 text-emerald-500" />
+                Hands-Free Station: Auto-connecting to SafeSpeak AI...
+              </div>
 
               {/* Big Physical/Touch Button */}
               <div className="pt-2">
@@ -506,7 +504,7 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
                   className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-xl shadow-emerald-600/30 px-10 py-7 text-xl font-bold rounded-full gap-3 transition-transform hover:scale-105 active:scale-95"
                 >
                   <Phone className="w-7 h-7" />
-                  Pick Up Phone {autoStartCountdown !== null ? `(${autoStartCountdown}s)` : ''}
+                  Pick Up Phone
                 </Button>
               </div>
 
