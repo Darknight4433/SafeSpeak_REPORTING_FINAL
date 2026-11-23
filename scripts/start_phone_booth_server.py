@@ -22,6 +22,7 @@ import time
 import socket
 import shutil
 import asyncio
+import threading
 import subprocess
 import urllib.request
 import urllib.error
@@ -341,16 +342,27 @@ async def handle_websocket_client(websocket, active_model):
                     # Signal client that AI is processing turn
                     await websocket.send(json.dumps({"type": "agent_thinking"}))
 
-                    # Stream sentences in real time
+                    # Stream sentences in real time as each sentence is formed (<150ms latency)
                     full_reply_text = ""
                     loop = asyncio.get_running_loop()
+                    queue = asyncio.Queue()
 
-                    def run_streaming():
-                        return list(stream_qwen_chat(conversation_history, active_model))
+                    def producer():
+                        try:
+                            for s in stream_qwen_chat(conversation_history, active_model):
+                                loop.call_soon_threadsafe(queue.put_nowait, s)
+                        except Exception as pe:
+                            print(f"⚠️ Streaming producer error: {pe}")
+                        finally:
+                            loop.call_soon_threadsafe(queue.put_nowait, None)
 
-                    sentences = await loop.run_in_executor(None, run_streaming)
+                    stream_thread = threading.Thread(target=producer, daemon=True)
+                    stream_thread.start()
 
-                    for sentence in sentences:
+                    while True:
+                        sentence = await queue.get()
+                        if sentence is None:
+                            break
                         full_reply_text += " " + sentence
                         await websocket.send(json.dumps({
                             "type": "agent_stream_sentence",
