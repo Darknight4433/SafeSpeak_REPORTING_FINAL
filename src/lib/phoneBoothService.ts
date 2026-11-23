@@ -41,7 +41,7 @@ export interface PhoneBoothState {
   error: string | null;
 }
 
-const DEFAULT_WS_URL = 'ws://127.0.0.1:8765';
+const DEFAULT_WS_URL = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_PHONE_BOOTH_WS_URL) || 'ws://127.0.0.1:8765';
 const STORAGE_KEY_WS = 'safespeak_phone_booth_ws';
 
 export function getSavedPhoneBoothWsUrl(): string {
