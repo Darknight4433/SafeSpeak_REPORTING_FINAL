@@ -70,7 +70,11 @@ export class PhoneBoothSessionManager {
   private turnCounter: number = 0;
   private startTime: number = 0;
   private listeners: ((state: Partial<PhoneBoothState>) => void)[] = [];
-  private ttsVoice: SpeechSynthesisUtterance | null = null;
+  
+  // Phase 3 Streaming Audio Queue & Barge-In State
+  private speechQueue: string[] = [];
+  private isProcessingQueue: boolean = false;
+  private currentAgentBubbleText: string = "";
 
   public subscribe(fn: (state: Partial<PhoneBoothState>) => void) {
     this.listeners.push(fn);
@@ -84,47 +88,64 @@ export class PhoneBoothSessionManager {
   }
 
   /**
-   * Speak agent response through browser speech synthesis
+   * Phase 3 Streaming TTS Queue
+   * Plays sentences in FIFO order as soon as they are streamed from the server.
    */
-  public speak(text: string, onEnd?: () => void) {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
-      if (onEnd) onEnd();
-      return;
-    }
+  private processSpeechQueue() {
+    if (this.isProcessingQueue || this.speechQueue.length === 0) return;
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+
+    this.isProcessingQueue = true;
+    const textToSpeak = this.speechQueue.shift()!;
 
     try {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = 0.95; // Gentle, understandable speed for kids
-      utterance.pitch = 1.05; // Friendly, warm pitch
+      const utterance = new SpeechSynthesisUtterance(textToSpeak);
+      utterance.rate = 0.95; // Gentle, understandable rate for students
+      utterance.pitch = 1.05; // Warm, supportive pitch
       utterance.lang = 'en-US';
 
-      // Pick a warm natural voice if available
+      // Pick natural or child-friendly voice if available
       const voices = window.speechSynthesis.getVoices();
-      const preferred = voices.find(v => (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('Karen')) && v.lang.startsWith('en'));
+      const preferred = voices.find(v => 
+        (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('Karen')) 
+        && v.lang.startsWith('en')
+      );
       if (preferred) utterance.voice = preferred;
 
       this.notify({ isAgentSpeaking: true });
 
       utterance.onend = () => {
-        this.notify({ isAgentSpeaking: false });
-        if (onEnd) onEnd();
+        this.isProcessingQueue = false;
+        if (this.speechQueue.length > 0) {
+          this.processSpeechQueue();
+        } else {
+          this.notify({ isAgentSpeaking: false });
+        }
       };
 
       utterance.onerror = () => {
-        this.notify({ isAgentSpeaking: false });
-        if (onEnd) onEnd();
+        this.isProcessingQueue = false;
+        if (this.speechQueue.length > 0) {
+          this.processSpeechQueue();
+        } else {
+          this.notify({ isAgentSpeaking: false });
+        }
       };
 
       window.speechSynthesis.speak(utterance);
     } catch (e) {
-      console.warn('Speech synthesis error:', e);
+      console.warn('TTS playback error:', e);
+      this.isProcessingQueue = false;
       this.notify({ isAgentSpeaking: false });
-      if (onEnd) onEnd();
     }
   }
 
+  /**
+   * Immediately halts all speech synthesis (Barge-In)
+   */
   public stopSpeaking() {
+    this.speechQueue = [];
+    this.isProcessingQueue = false;
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
       this.notify({ isAgentSpeaking: false });
@@ -140,6 +161,9 @@ export class PhoneBoothSessionManager {
   public async startCall(serverUrl: string = getSavedPhoneBoothWsUrl()): Promise<boolean> {
     this.startTime = Date.now();
     this.turnCounter = 0;
+    this.speechQueue = [];
+    this.isProcessingQueue = false;
+    this.currentAgentBubbleText = "";
 
     // 1. Initialize Firebase Conversation entry immediately
     try {
@@ -175,14 +199,14 @@ export class PhoneBoothSessionManager {
       console.warn('Firebase conversation init error (will continue locally):', fbErr);
     }
 
-    // 2. Connect WebSocket
+    // 2. Connect WebSocket to Secondary Laptop
     return new Promise((resolve) => {
       try {
-        console.log(`Connecting to Phone Booth AI Server: ${serverUrl}`);
+        console.log(`Connecting to SafeSpeak AI Voice Server: ${serverUrl}`);
         this.ws = new WebSocket(serverUrl);
 
         this.ws.onopen = () => {
-          console.log('✅ WebSocket connection established with AI server');
+          console.log('✅ WebSocket connection established with AI Voice Engine');
           this.notify({ isConnected: true, error: null });
           resolve(true);
         };
@@ -217,38 +241,39 @@ export class PhoneBoothSessionManager {
   }
 
   /**
-   * Handle incoming AI speech & slot extraction packet
+   * Phase 3 Streaming Message Handler
    */
   private async handleIncomingMessage(data: any) {
-    if (data.type === 'agent_response') {
-      const speech = data.speech || '';
-      const emotion = data.detected_emotion || 'Comforting';
-      const category = data.category_guess || 'other';
-      const inquiryState = data.inquiry_state || 'acknowledging';
-      const slots = data.slots || {};
+    // 1. Streaming Sentence Token Delivery (<500ms time-to-speech)
+    if (data.type === 'agent_stream_sentence') {
+      const sentence = data.sentence || '';
+      const emotion = data.detected_emotion || 'Listening';
+
+      // Enqueue sentence for immediate speech playback
+      this.speechQueue.push(sentence);
+      this.processSpeechQueue();
+
+      this.currentAgentBubbleText = (this.currentAgentBubbleText + ' ' + sentence).trim();
 
       this.turnCounter += 1;
       const turnObj: PhoneBoothTurn = {
         turn: this.turnCounter,
         speaker: 'agent',
-        text: speech,
+        text: this.currentAgentBubbleText,
         emotion: emotion,
         timestamp: Date.now()
       };
 
-      // Append to Firebase live transcript
+      // Sync to Firebase live transcript
       if (this.currentConversationKey) {
         try {
           const turnRef = push(ref(database, `conversations/${this.currentConversationKey}/transcript`));
-          await set(turnRef, turnObj);
-
-          // Update current extracted slots and emotional state in Firebase
-          await update(ref(database, `conversations/${this.currentConversationKey}`), {
-            currentEmotion: emotion,
-            categoryGuess: category,
-            inquiryState: inquiryState,
-            lastUpdated: serverTimestamp(),
-            extractedSlots: slots
+          await set(turnRef, {
+            turn: this.turnCounter,
+            speaker: 'agent',
+            text: sentence,
+            emotion: emotion,
+            timestamp: Date.now()
           });
         } catch (e) {
           console.warn('Firebase turn sync error:', e);
@@ -256,23 +281,50 @@ export class PhoneBoothSessionManager {
       }
 
       this.notify({
+        currentEmotion: emotion
+      });
+    }
+
+    // 2. Background Extracted Slots Update
+    if (data.type === 'turn_slots_updated') {
+      const slots = data.slots || {};
+      const emotion = data.detected_emotion || 'Empathetic';
+      const category = data.category || 'other';
+
+      if (this.currentConversationKey) {
+        try {
+          await update(ref(database, `conversations/${this.currentConversationKey}`), {
+            currentEmotion: emotion,
+            categoryGuess: category,
+            lastUpdated: serverTimestamp(),
+            extractedSlots: slots
+          });
+        } catch (e) {}
+      }
+
+      this.notify({
         currentEmotion: emotion,
         categoryGuess: category,
-        inquiryState: inquiryState,
         extractedSlots: slots
       });
-
-      // Speak aloud to the child
-      this.speak(speech);
     }
   }
 
   /**
-   * Send student's spoken words to AI server and persist in Firebase
+   * Send student speech turn with automatic Barge-In (interruption) handling
    */
   public async sendStudentSpeech(text: string) {
     if (!text || text.trim().length === 0) return;
 
+    // Barge-In: if AI is currently speaking, cut off speech immediately so student is heard!
+    if (this.speechQueue.length > 0 || (typeof window !== 'undefined' && window.speechSynthesis.speaking)) {
+      this.stopSpeaking();
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: 'barge_in' }));
+      }
+    }
+
+    this.currentAgentBubbleText = ""; // Reset agent bubble for the next turn
     this.turnCounter += 1;
     const turnObj: PhoneBoothTurn = {
       turn: this.turnCounter,
@@ -298,8 +350,7 @@ export class PhoneBoothSessionManager {
         text: text.trim()
       }));
     } else {
-      console.warn('WebSocket not open. Speech could not be transmitted to AI server.');
-      this.notify({ error: 'AI server disconnected. Speech preserved locally.' });
+      console.warn('WebSocket not open. Preserving speech locally.');
     }
   }
 

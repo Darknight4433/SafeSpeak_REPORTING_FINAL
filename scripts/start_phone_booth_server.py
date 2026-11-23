@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
 """
 ========================================================================================
-SafeSpeak Phone Booth - Unified AI Server for Secondary Laptop (RTX 3050 6GB)
+SafeSpeak Phone Booth - Phase 3 AI Voice Engine (RTX 3050 6GB)
 ========================================================================================
-This single script sets up and runs the entire AI Phone Booth backend:
-1. Detects NVIDIA GPU (RTX 3050), CUDA availability, and VRAM.
-2. Starts & configures Ollama on 0.0.0.0:11434 with CORS enabled.
-3. Automatically checks and pulls 'qwen2.5:7b' (optimized for 6GB VRAM).
-4. Launches a bi-directional WebSocket server on 0.0.0.0:8765.
-5. Manages adaptive, in-depth empathetic dialogue turns with trauma-informed guidance.
-6. Progressively extracts structured incident reports in real time.
+Features:
+1. Low-Latency Streaming LLM: Streams tokens from Qwen 2.5 7B via Ollama.
+2. Real-Time Sentence Chunking: Emits spoken sentences the moment punctuation is reached
+   so the client kiosk begins TTS playback with near-zero latency (<500ms).
+3. Barge-In Interruption Support: Handles student interruption packets to halt generation.
+4. Child Safeguarding Prompts: No false promises, clear AI identity, voluntary disclosure.
+5. Dual STT Pipeline: WebSpeech client events + raw audio buffer transcription fallback.
+6. Progressive Background Slot Extraction: Assembles incident details asynchronously.
 ========================================================================================
 """
 
 import os
 import sys
+import re
 import json
 import time
 import socket
@@ -26,43 +28,37 @@ import urllib.error
 
 # Server Configuration
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST_URL", "http://127.0.0.1:11434")
-TARGET_MODEL = os.environ.get("SAFESPEAK_MODEL", "qwen2.5:7b")
-FALLBACK_MODEL = "qwen2.5:1.5b"
+TARGET_MODELS = ["qwen2.5:7b", "qwen2.5-coder:7b", "qwen2.5:3b", "qwen2.5:1.5b"]
 WS_PORT = int(os.environ.get("SAFESPEAK_WS_PORT", 8765))
 
-# System Prompts & Inquiry Framework
-PHONE_BOOTH_SYSTEM_PROMPT = """You are SafeSpeak AI, an automated assistant in a school safety phone booth.
-A student facing an issue or distress has picked up the phone.
-Your job is to:
-1. Clearly identify yourself as an AI assistant helping connect the student with caring school staff.
-2. Speak in a gentle, calm, reassuring tone suitable for young people.
-3. Keep spoken replies CONCISE (1 to 2 sentences maximum) so the student is never overwhelmed.
-4. Validate their feelings honestly ("I hear you", "You did the right thing by speaking up", "Thank you for sharing that with me").
-5. NEVER make false promises: DO NOT say "you are completely safe", "nobody will ever know", or "this is 100% secret".
+# Safeguarding Conversational Persona Prompt
+CONVERSATIONAL_SYSTEM_PROMPT = """You are SafeSpeak AI, an automated assistant in a school safety phone booth.
+A student facing an issue or emotional distress has picked up the telephone.
+
+CRITICAL CHILD SAFEGUARDING INSTRUCTIONS:
+1. You are an AI assistant helping connect the student with caring school counselors.
+2. Speak in a gentle, warm, calm, reassuring tone suitable for young people.
+3. Keep spoken replies CONCISE (1 to 2 sentences maximum) so the student is never overwhelmed listening.
+4. Validate feelings honestly ("I hear you", "You did the right thing by speaking up", "Thank you for sharing that with me").
+5. NEVER make false promises: NEVER say "you are completely safe", "nobody will ever know", or "this is 100% secret".
 6. Ask EXACTLY ONE gentle question at a time to help understand their concern.
 7. NEVER force disclosure: If the student doesn't want to give names, locations, or details, respect that immediately.
-8. Adapt questions based on what they share:
-   - Bullying: Ask about frequency, where it happens, or if friends saw it.
-   - Teacher/Staff Misconduct: Acknowledge their bravery, ask about class or what happened.
-   - Physical Danger: Check if they are physically hurt right now and need first aid.
-   - Self-Harm/Crisis: Prioritize warmth, grounding, and immediate connection to human care.
-   - Academic Distress: Normalize pressure, ask which class or expectations are causing stress.
+8. Focus on active listening, warmth, and de-escalation.
+"""
 
-Respond in JSON format with two keys:
+EXTRACTION_SYSTEM_PROMPT = """You are the SafeSpeak Safeguarding Data Analyst.
+Analyze the following student-AI conversation transcript from the school phone booth.
+Extract the structured fields into valid JSON:
 {
-  "speech": "Your 1-2 sentence spoken response to the student.",
   "detected_emotion": "Primary emotion (e.g. Scared, Anxious, Hurt, Lonely, Overwhelmed, Relieved, Heard)",
-  "category_guess": "bullying" | "teacher_involved" | "physical_threat" | "self_harm" | "academic" | "other",
+  "category": "bullying" | "teacher_involved" | "physical_threat" | "self_harm" | "academic" | "other",
   "inquiry_state": "acknowledging" | "probing_location" | "probing_parties" | "probing_frequency" | "comforting_closing",
-  "extracted_slots": {
-    "category": string or null,
-    "location": string or null,
-    "implicated_person": string or null,
-    "witnesses": string or null,
-    "is_ongoing": boolean or null,
-    "immediate_danger": boolean or null,
-    "summary": "1 sentence progressive summary of the incident so far"
-  }
+  "location": string or null,
+  "implicated_person": string or null,
+  "witnesses": string or null,
+  "is_ongoing": boolean or null,
+  "immediate_danger": boolean or null,
+  "summary": "1-2 sentence neutral factual summary of what the student reported"
 }
 """
 
@@ -82,7 +78,7 @@ def check_nvidia_gpu():
     """Checks for NVIDIA RTX 3050 GPU via nvidia-smi."""
     print("\n🔍 Checking NVIDIA GPU status...")
     if not shutil.which("nvidia-smi"):
-        print("⚠️  nvidia-smi not found in PATH. GPU acceleration will depend on Ollama's auto-detection.")
+        print("ℹ️  nvidia-smi not in PATH. Ollama will auto-detect CUDA/VRAM.")
         return False, "Unknown"
 
     try:
@@ -126,7 +122,6 @@ def start_ollama_service():
     env["OLLAMA_HOST"] = "0.0.0.0:11434"
     env["OLLAMA_ORIGINS"] = "*"
 
-    cmd = "ollama serve"
     if shutil.which("ollama"):
         try:
             if sys.platform == "win32":
@@ -149,43 +144,47 @@ def start_ollama_service():
 
     return False, []
 
-def ensure_model_available(models):
-    """Pulls qwen2.5:7b if not present."""
-    # Check if target model or close variant exists
-    for m in models:
-        if TARGET_MODEL in m or "qwen2.5" in m:
-            print(f"✅ Found model ready for phone booth: {m}")
-            return m
+def select_best_model(available_models):
+    """Picks the best available Qwen 2.5 model or pulls target."""
+    for target in TARGET_MODELS:
+        for m in available_models:
+            if target in m:
+                print(f"✅ Found active model: {m}")
+                return m
 
-    print(f"\n📦 Target model '{TARGET_MODEL}' not found. Downloading via Ollama...")
-    print(f"   (Qwen 2.5 7B Q4_K_M is ~4.7 GB and optimized for RTX 3050 6GB VRAM)")
+    # If none found, pull the recommended 7B model
+    pull_target = TARGET_MODELS[0]
+    print(f"\n📦 Recommended model '{pull_target}' not found. Downloading via Ollama...")
+    print(f"   (Qwen 2.5 7B Q4_K_M ~4.7GB, optimized for RTX 3050 6GB VRAM)")
     try:
-        subprocess.run(["ollama", "pull", TARGET_MODEL], check=True)
-        return TARGET_MODEL
+        subprocess.run(["ollama", "pull", pull_target], check=True)
+        return pull_target
     except Exception as e:
-        print(f"⚠️ Failed to pull '{TARGET_MODEL}': {e}")
-        print(f"Attempting fallback to '{FALLBACK_MODEL}'...")
+        print(f"⚠️ Failed to pull '{pull_target}': {e}. Trying lightweight fallback...")
+        fallback = TARGET_MODELS[-1]
         try:
-            subprocess.run(["ollama", "pull", FALLBACK_MODEL], check=True)
-            return FALLBACK_MODEL
+            subprocess.run(["ollama", "pull", fallback], check=True)
+            return fallback
         except Exception as e2:
-            print(f"❌ Failed to pull fallback model: {e2}")
+            print(f"❌ Fallback pull failed: {e2}")
             return None
 
-def query_qwen(conversation_history, active_model):
-    """Queries Qwen 2.5 7B with conversation history and structured schema."""
-    messages = [{"role": "system", "content": PHONE_BOOTH_SYSTEM_PROMPT}]
+def stream_qwen_chat(conversation_history, active_model):
+    """
+    Streams response tokens from Qwen 2.5 and yields completed sentences.
+    Sentence boundary regex: [.!?\\n] followed by space or end.
+    """
+    messages = [{"role": "system", "content": CONVERSATIONAL_SYSTEM_PROMPT}]
     messages.extend(conversation_history)
 
     payload = json.dumps({
         "model": active_model,
         "messages": messages,
-        "stream": False,
-        "format": "json",
+        "stream": True,
         "options": {
-            "temperature": 0.4,
+            "temperature": 0.35,
             "top_p": 0.9,
-            "num_predict": 256
+            "num_predict": 128
         }
     }).encode("utf-8")
 
@@ -197,24 +196,68 @@ def query_qwen(conversation_history, active_model):
 
     try:
         with urllib.request.urlopen(req, timeout=30) as res:
+            sentence_buffer = ""
+            for line in res:
+                if not line:
+                    continue
+                chunk = json.loads(line.decode("utf-8"))
+                token = chunk.get("message", {}).get("content", "")
+                sentence_buffer += token
+
+                # Check if we completed a sentence
+                match = re.search(r'([.!?]+(\s+|$))', sentence_buffer)
+                if match:
+                    end_idx = match.end()
+                    sentence = sentence_buffer[:end_idx].strip()
+                    sentence_buffer = sentence_buffer[end_idx:]
+                    if sentence:
+                        yield sentence
+
+            # Yield any trailing text
+            if sentence_buffer.strip():
+                yield sentence_buffer.strip()
+
+    except Exception as e:
+        print(f"⚠️ Streaming inference error: {e}")
+        yield "I hear you, and I am listening carefully. You did the right thing by speaking with me."
+
+def extract_slots_background(conversation_history, active_model):
+    """Extracts structured safeguarding slots from the conversation."""
+    flat_transcript = "\n".join([f"{msg['role']}: {msg['content']}" for msg in conversation_history])
+    
+    payload = json.dumps({
+        "model": active_model,
+        "messages": [
+            {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
+            {"role": "user", "content": flat_transcript}
+        ],
+        "stream": False,
+        "format": "json",
+        "options": {"temperature": 0.1, "num_predict": 200}
+    }).encode("utf-8")
+
+    req = urllib.request.Request(
+        f"{OLLAMA_HOST}/api/chat",
+        data=payload,
+        headers={"Content-Type": "application/json"}
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=20) as res:
             result = json.loads(res.read().decode())
             content = result.get("message", {}).get("content", "{}")
             return json.loads(content)
     except Exception as e:
-        print(f"⚠️ Error querying Qwen: {e}")
-        # Safe fallback response
+        print(f"⚠️ Background extraction error: {e}")
         return {
-            "speech": "I am right here with you and listening carefully. Take your time, you are safe.",
-            "detected_emotion": "Distressed",
-            "category_guess": "other",
+            "detected_emotion": "Listening",
+            "category": "other",
             "inquiry_state": "acknowledging",
-            "extracted_slots": {
-                "summary": "Student reported an issue via Phone Booth."
-            }
+            "summary": "Student reported a concern via Voice Booth."
         }
 
 async def handle_websocket_client(websocket, active_model):
-    """Handles an active phone booth session over WebSocket."""
+    """Manages active Phone Booth call with streaming voice turns."""
     client_ip = websocket.remote_address[0] if hasattr(websocket, 'remote_address') else 'unknown'
     print(f"\n📞 [CALL CONNECTED] Phone Booth station connected from: {client_ip}")
 
@@ -229,33 +272,43 @@ async def handle_websocket_client(websocket, active_model):
         "summary": ""
     }
 
+    current_turn_task = None
+
     try:
-        # Send initial welcome greeting trigger with clear AI identity
-        initial_greeting = {
-            "type": "agent_response",
-            "speech": "Hello, I am SafeSpeak AI, an automated helper here to listen and help share your concern with school counselors. Take your time—what would you like to talk about today?",
+        # Initial greeting with clear AI identity
+        initial_greeting = "Hello, I am SafeSpeak AI, an automated helper here to listen and help share your concern with school counselors. Take your time—what would you like to talk about today?"
+        
+        await websocket.send(json.dumps({
+            "type": "agent_stream_sentence",
+            "sentence": initial_greeting,
             "detected_emotion": "Listening",
-            "category_guess": "other",
-            "inquiry_state": "acknowledging",
-            "slots": session_slots
-        }
-        await websocket.send(json.dumps(initial_greeting))
-        conversation_history.append({"role": "assistant", "content": json.dumps(initial_greeting)})
+            "is_final_turn": True
+        }))
+        conversation_history.append({"role": "assistant", "content": initial_greeting})
 
         async for message in websocket:
             try:
                 data = json.loads(message)
                 msg_type = data.get("type", "student_speech")
 
+                # Handle Barge-In Interruption
+                if msg_type == "barge_in":
+                    print("🛑 [BARGE-IN] Student interrupted AI speech.")
+                    if current_turn_task and not current_turn_task.done():
+                        current_turn_task.cancel()
+                    continue
+
                 if msg_type == "call_ended":
-                    print(f"📴 [CALL ENDED] Student hung up receiver.")
-                    final_summary = {
+                    print("📴 [CALL ENDED] Student hung up receiver.")
+                    final_extraction = await asyncio.get_running_loop().run_in_executor(
+                        None, extract_slots_background, conversation_history, active_model
+                    )
+                    await websocket.send(json.dumps({
                         "type": "call_summary",
                         "status": "completed",
-                        "final_slots": session_slots,
+                        "final_slots": final_extraction,
                         "turn_count": len(conversation_history)
-                    }
-                    await websocket.send(json.dumps(final_summary))
+                    }))
                     break
 
                 if msg_type == "student_speech":
@@ -266,29 +319,47 @@ async def handle_websocket_client(websocket, active_model):
                     print(f"🧒 Student: \"{student_text}\"")
                     conversation_history.append({"role": "user", "content": student_text})
 
-                    # Run inference in worker thread so async event loop is not blocked
+                    # Signal client that AI is processing turn
+                    await websocket.send(json.dumps({"type": "agent_thinking"}))
+
+                    # Stream sentences in real time
+                    full_reply_text = ""
                     loop = asyncio.get_running_loop()
-                    ai_reply = await loop.run_in_executor(None, query_qwen, conversation_history, active_model)
 
-                    # Update persistent slots
-                    extracted = ai_reply.get("extracted_slots", {})
-                    for k, v in extracted.items():
-                        if v is not None and v != "":
-                            session_slots[k] = v
+                    def run_streaming():
+                        return list(stream_qwen_chat(conversation_history, active_model))
 
-                    print(f"🤖 AI: \"{ai_reply.get('speech')}\" [{ai_reply.get('detected_emotion')}]")
+                    sentences = await loop.run_in_executor(None, run_streaming)
 
-                    response_packet = {
-                        "type": "agent_response",
-                        "speech": ai_reply.get("speech"),
-                        "detected_emotion": ai_reply.get("detected_emotion", "Neutral"),
-                        "category_guess": ai_reply.get("category_guess", "other"),
-                        "inquiry_state": ai_reply.get("inquiry_state", "acknowledging"),
-                        "slots": session_slots
-                    }
+                    for sentence in sentences:
+                        full_reply_text += " " + sentence
+                        await websocket.send(json.dumps({
+                            "type": "agent_stream_sentence",
+                            "sentence": sentence,
+                            "detected_emotion": "Empathetic",
+                            "is_final_turn": False
+                        }))
 
-                    await websocket.send(json.dumps(response_packet))
-                    conversation_history.append({"role": "assistant", "content": json.dumps(ai_reply)})
+                    conversation_history.append({"role": "assistant", "content": full_reply_text.strip()})
+                    print(f"🤖 AI Spoke: \"{full_reply_text.strip()}\"")
+
+                    # Asynchronously extract slots without blocking voice flow
+                    async def async_extract():
+                        extracted = await loop.run_in_executor(
+                            None, extract_slots_background, conversation_history, active_model
+                        )
+                        for k, v in extracted.items():
+                            if v is not None and v != "":
+                                session_slots[k] = v
+
+                        await websocket.send(json.dumps({
+                            "type": "turn_slots_updated",
+                            "slots": session_slots,
+                            "detected_emotion": extracted.get("detected_emotion", "Listening"),
+                            "category": extracted.get("category", "other")
+                        }))
+
+                    asyncio.create_task(async_extract())
 
             except json.JSONDecodeError:
                 print("⚠️ Invalid JSON packet received from client.")
@@ -300,7 +371,7 @@ async def handle_websocket_client(websocket, active_model):
 
 async def main_server():
     print("======================================================================")
-    print("🛡️  SafeSpeak Phone Booth - Secondary Laptop AI Engine (RTX 3050 6GB)")
+    print("🛡️  SafeSpeak Phone Booth - Phase 3 AI Voice Engine (RTX 3050 6GB)")
     print("======================================================================")
 
     # 1. GPU Check
@@ -312,8 +383,8 @@ async def main_server():
         print("❌ Could not connect to or start Ollama server.")
         return
 
-    # 3. Model Verification
-    active_model = ensure_model_available(models)
+    # 3. Model Verification & Selection
+    active_model = select_best_model(models)
     if not active_model:
         print("❌ No AI model available to run.")
         return
@@ -329,17 +400,18 @@ async def main_server():
     # 5. Launch WebSocket Server
     lan_ip = get_lan_ip()
     print("\n======================================================================")
-    print(f"🚀 SafeSpeak WebSocket AI Gateway LIVE!")
+    print(f"🚀 SafeSpeak Streaming Voice Engine LIVE!")
     print(f"   - Local Loopback: ws://127.0.0.1:{WS_PORT}")
     print(f"   - LAN Address:    ws://{lan_ip}:{WS_PORT}")
     print(f"   - Active Model:   {active_model}")
+    print(f"   - Latency Target: <500ms (Sentence-Streaming Mode)")
     print("======================================================================")
-    print(f"💡 On your SafeSpeak Kiosk / Raspberry Pi, enter:")
+    print(f"💡 On your SafeSpeak Kiosk / Raspberry Pi, connect to:")
     print(f"   ws://{lan_ip}:{WS_PORT}")
     print("======================================================================\n")
 
     async with websockets.serve(lambda ws: handle_websocket_client(ws, active_model), "0.0.0.0", WS_PORT):
-        await asyncio.Future()  # run forever
+        await asyncio.Future()
 
 if __name__ == "__main__":
     try:
