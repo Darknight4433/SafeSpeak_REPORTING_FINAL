@@ -43,7 +43,9 @@ export interface PhoneBoothState {
   error: string | null;
 }
 
-const DEFAULT_WS_URL = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_PHONE_BOOTH_WS_URL) || 'ws://127.0.0.1:8765';
+export const SECONDARY_LAPTOP_WS_URL = 'ws://192.168.10.44:8765';
+export const MDNS_LAPTOP_WS_URL = 'ws://desktop-5tk1mc6.local:8765';
+const DEFAULT_WS_URL = SECONDARY_LAPTOP_WS_URL;
 const STORAGE_KEY_WS = 'safespeak_phone_booth_ws';
 
 // ElevenLabs Ultra-Realistic Spoken Voice Engine with Multi-Key Rotation
@@ -53,14 +55,25 @@ export const ELEVEN_LABS_KEYS = [
   'sk_0a20833dd98773b18282f07fb2da25ea1ef68e68b1b43e6e',
   'sk_f017c44fdd87a3f70b6c1b4e18bca9634185b96b8964063a'
 ];
-export const ELEVEN_LABS_VOICE_ID = '21m00Tcm4TlvDq8ikWAM'; // Rachel (Warm, empathetic, natural)
+export const ELEVEN_LABS_VOICE_ID = 'EXAVITQu4vr4xnSDxMaL'; // Sarah (Mature, Reassuring, Confident - Premade Free Tier)
 
 export function getSavedPhoneBoothWsUrl(): string {
-  if (typeof window === 'undefined') return DEFAULT_WS_URL;
+  if (typeof window === 'undefined') return SECONDARY_LAPTOP_WS_URL;
   try {
-    return localStorage.getItem(STORAGE_KEY_WS) || DEFAULT_WS_URL;
+    const rawSearch = window.location.search || (window.location.hash.includes('?') ? window.location.hash.split('?')[1] : '');
+    const urlParams = new URLSearchParams(rawSearch);
+    const paramWs = urlParams.get('ws');
+    if (paramWs) {
+      savePhoneBoothWsUrl(paramWs);
+      return paramWs;
+    }
+    const saved = localStorage.getItem(STORAGE_KEY_WS);
+    if (saved && saved !== 'ws://127.0.0.1:8765' && saved !== 'ws://localhost:8765') {
+      return saved;
+    }
+    return SECONDARY_LAPTOP_WS_URL;
   } catch {
-    return DEFAULT_WS_URL;
+    return SECONDARY_LAPTOP_WS_URL;
   }
 }
 
@@ -77,6 +90,11 @@ export function savePhoneBoothWsUrl(url: string): void {
   }
 }
 
+export interface SpeechQueueItem {
+  text: string;
+  audioBase64?: string | null;
+}
+
 export class PhoneBoothSessionManager {
   private ws: WebSocket | null = null;
   private currentConversationKey: string | null = null;
@@ -88,7 +106,7 @@ export class PhoneBoothSessionManager {
   private turns: PhoneBoothTurn[] = [];
   
   // Phase 3 Streaming Audio Queue & Barge-In State
-  private speechQueue: string[] = [];
+  private speechQueue: SpeechQueueItem[] = [];
   private isProcessingQueue: boolean = false;
   private currentAgentBubbleText: string = "";
   private currentAudio: HTMLAudioElement | null = null;
@@ -166,11 +184,41 @@ export class PhoneBoothSessionManager {
   private async processSpeechQueue() {
     if (this.isProcessingQueue || this.speechQueue.length === 0) return;
     this.isProcessingQueue = true;
-    const textToSpeak = this.speechQueue.shift()!;
+    const item = this.speechQueue.shift()!;
+    const textToSpeak = item.text;
 
     this.notify({ isAgentSpeaking: true, currentAgentSentence: textToSpeak });
 
-    // 1. Try ElevenLabs Ultra-Realistic Human Speech first
+    // 1. If server streamed pre-synthesized ElevenLabs HD Audio:
+    if (item.audioBase64) {
+      try {
+        const audio = new Audio('data:audio/mpeg;base64,' + item.audioBase64);
+        this.currentAudio = audio;
+
+        audio.onended = () => {
+          this.currentAudio = null;
+          this.isProcessingQueue = false;
+          if (this.speechQueue.length > 0) {
+            this.processSpeechQueue();
+          } else {
+            this.onSpeechFinished();
+          }
+        };
+
+        audio.onerror = () => {
+          this.currentAudio = null;
+          this.isProcessingQueue = false;
+          this.playBrowserTTSFallback(textToSpeak);
+        };
+
+        await audio.play();
+        return;
+      } catch (e) {
+        console.warn('Direct ElevenLabs audio playback error, falling back:', e);
+      }
+    }
+
+    // 2. Client-side fetch from ElevenLabs with working Sarah premade voice
     try {
       const audioUrl = await this.fetchElevenLabsAudio(textToSpeak);
       if (audioUrl) {
@@ -202,7 +250,7 @@ export class PhoneBoothSessionManager {
       console.warn('ElevenLabs playback error, using fallback:', e);
     }
 
-    // 2. Failure-Safe Fallback to Browser SpeechSynthesis
+    // 3. Failure-Safe Fallback to Browser SpeechSynthesis
     this.playBrowserTTSFallback(textToSpeak);
   }
 
@@ -416,9 +464,10 @@ export class PhoneBoothSessionManager {
     if (data.type === 'agent_stream_sentence') {
       const sentence = data.sentence || '';
       const emotion = data.detected_emotion || 'Listening';
+      const audioBase64 = data.audio_base64 || null;
 
       // Enqueue sentence for immediate speech playback
-      this.speechQueue.push(sentence);
+      this.speechQueue.push({ text: sentence, audioBase64 });
       this.processSpeechQueue();
 
       this.currentAgentBubbleText = (this.currentAgentBubbleText + ' ' + sentence).trim();

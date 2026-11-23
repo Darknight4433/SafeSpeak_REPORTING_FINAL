@@ -23,6 +23,58 @@ import socket
 import shutil
 import asyncio
 import threading
+import base64
+import urllib.request
+import urllib.error
+
+# ElevenLabs HD Voice Configuration with 4-Key Rotation
+ELEVEN_LABS_KEYS = [
+    "sk_8fde097b04c48a06ce5631baed05ea4dc4b9ea69df463597",
+    "sk_ca770c72b95cb453420917026a970f32dd2ff2fc57c1b551",
+    "sk_0a20833dd98773b18282f07fb2da25ea1ef68e68b1b43e6e",
+    "sk_f017c44fdd87a3f70b6c1b4e18bca9634185b96b8964063a"
+]
+ELEVEN_LABS_VOICE_ID = "EXAVITQu4vr4xnSDxMaL"  # Sarah (Mature, Reassuring, Confident - Premade Free Tier)
+current_eleven_key_idx = 0
+
+def synthesize_elevenlabs_b64(text: str):
+    """Synthesizes high-fidelity voice via ElevenLabs Turbo v2.5 with automatic key rotation."""
+    global current_eleven_key_idx
+    if not text or not text.strip():
+        return None
+    clean_text = re.sub(r'[*_#`~]', '', text).strip()
+
+    for _ in range(len(ELEVEN_LABS_KEYS)):
+        key = ELEVEN_LABS_KEYS[current_eleven_key_idx]
+        url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVEN_LABS_VOICE_ID}/stream?optimize_streaming_latency=4"
+        payload = json.dumps({
+            "text": clean_text,
+            "model_id": "eleven_turbo_v2_5",
+            "voice_settings": {
+                "stability": 0.5,
+                "similarity_boost": 0.8
+            }
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            url,
+            data=payload,
+            headers={
+                "Accept": "audio/mpeg",
+                "Content-Type": "application/json",
+                "xi-api-key": key
+            },
+            method="POST"
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=7) as res:
+                return base64.b64encode(res.read()).decode("ascii")
+        except urllib.error.HTTPError as he:
+            print(f"⚠️ ElevenLabs key #{current_eleven_key_idx+1} status {he.code}. Rotating key...")
+            current_eleven_key_idx = (current_eleven_key_idx + 1) % len(ELEVEN_LABS_KEYS)
+        except Exception as e:
+            print(f"⚠️ ElevenLabs key #{current_eleven_key_idx+1} error: {e}. Rotating key...")
+            current_eleven_key_idx = (current_eleven_key_idx + 1) % len(ELEVEN_LABS_KEYS)
+    return None
 import subprocess
 import urllib.request
 import urllib.error
@@ -303,12 +355,14 @@ async def handle_websocket_client(websocket, active_model):
     current_turn_task = None
 
     try:
-        # Initial greeting with clear AI identity
+        # Initial greeting with clear AI identity and ElevenLabs HD audio
         initial_greeting = "Hello, I am SafeSpeak AI, an automated helper here to listen and help share your concern with school counselors. Take your time—what would you like to talk about today?"
+        greeting_audio = await asyncio.get_running_loop().run_in_executor(None, synthesize_elevenlabs_b64, initial_greeting)
         
         await websocket.send(json.dumps({
             "type": "agent_stream_sentence",
             "sentence": initial_greeting,
+            "audio_base64": greeting_audio,
             "detected_emotion": "Listening",
             "is_final_turn": True
         }))
@@ -372,9 +426,11 @@ async def handle_websocket_client(websocket, active_model):
                         if sentence is None:
                             break
                         full_reply_text += " " + sentence
+                        sentence_audio = await loop.run_in_executor(None, synthesize_elevenlabs_b64, sentence)
                         await websocket.send(json.dumps({
                             "type": "agent_stream_sentence",
                             "sentence": sentence,
+                            "audio_base64": sentence_audio,
                             "detected_emotion": "Empathetic",
                             "is_final_turn": False
                         }))

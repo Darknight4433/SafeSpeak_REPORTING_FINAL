@@ -52,5 +52,4 @@ $BROWSER_CMD \
     --touch-events=enabled \
     --disable-pinch \
     --overscroll-history-navigation=0 \
-    --enable-speech-dispatcher \
-    "http://localhost:8080"
+    "http://localhost:8080/#/?ws=ws://192.168.10.44:8765"
