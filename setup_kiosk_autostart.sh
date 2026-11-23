@@ -81,6 +81,25 @@ chmod +x "$AUTOSTART_DIR/safespeak.desktop"
 chown "$CURRENT_USER:$CURRENT_USER" "$AUTOSTART_DIR/safespeak.desktop" 2>/dev/null || true
 echo "✅ 3. Configured Auto-Launch on Boot: $AUTOSTART_DIR/safespeak.desktop"
 
+# 5. Optional Wayfire / Wayland Support for Raspberry Pi OS Bookworm
+WAYFIRE_INI="$HOME_DIR/.config/wayfire.ini"
+if [ -f "$WAYFIRE_INI" ]; then
+    if ! grep -q "safespeak" "$WAYFIRE_INI"; then
+        printf "\n[autostart]\nsafespeak = %s/LAUNCH-PI.sh\n" "$DIR" >> "$WAYFIRE_INI"
+        echo "✅ 4. Configured Wayland/Wayfire Autostart: $WAYFIRE_INI"
+    fi
+fi
+
+# 6. Optional Labwc Autostart for Raspberry Pi OS Bookworm (Labwc)
+LABWC_AUTOSTART="$HOME_DIR/.config/labwc/autostart"
+if [ -d "$HOME_DIR/.config/labwc" ]; then
+    if ! grep -q "LAUNCH-PI.sh" "$LABWC_AUTOSTART" 2>/dev/null; then
+        echo "$DIR/LAUNCH-PI.sh &" >> "$LABWC_AUTOSTART"
+        chmod +x "$LABWC_AUTOSTART"
+        echo "✅ 5. Configured Labwc Autostart: $LABWC_AUTOSTART"
+    fi
+fi
+
 echo ""
 echo "=========================================================="
 echo "🎉 Setup Complete! SafeSpeak will now automatically"
