@@ -12,10 +12,18 @@ echo "=========================================================="
 echo "🛡️  SafeSpeak Phone Booth — Instant Raspberry Pi Launcher"
 echo "=========================================================="
 
-# 1. Kill any hung npm/node processes from earlier
+# 1. Wait for display server if launched on system boot
+for i in {1..15}; do
+    if [ -n "$DISPLAY" ] || [ -n "$WAYLAND_DISPLAY" ]; then
+        break
+    fi
+    sleep 1
+done
+
+# 2. Kill any hung npm/node processes from earlier
 killall -9 npm node 2>/dev/null || true
 
-# 2. Touchscreen & screen-awake settings
+# 3. Touchscreen & screen-awake settings
 if command -v xset >/dev/null 2>&1; then
     xset s off -dpms s noblank 2>/dev/null || true
 fi
