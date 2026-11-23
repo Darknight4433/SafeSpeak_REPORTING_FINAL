@@ -194,7 +194,8 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
     return () => unsubscribe();
   }, []);
 
-  // Web Speech Recognition for Student Audio Input with live interim results
+
+  // Web Speech Recognition for Student Audio Input with live interim results and fast silence debounce
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
