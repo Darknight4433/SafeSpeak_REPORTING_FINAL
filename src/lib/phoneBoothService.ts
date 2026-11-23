@@ -29,6 +29,7 @@ export interface PhoneBoothState {
   isConnected: boolean;
   isCallActive: boolean;
   isAgentSpeaking: boolean;
+  currentAgentSentence?: string;
   isStudentListening: boolean;
   currentEmotion: string;
   categoryGuess: string;
@@ -74,6 +75,7 @@ export class PhoneBoothSessionManager {
   private turnCounter: number = 0;
   private startTime: number = 0;
   private listeners: ((state: Partial<PhoneBoothState>) => void)[] = [];
+  private turns: PhoneBoothTurn[] = [];
   
   // Phase 3 Streaming Audio Queue & Barge-In State
   private speechQueue: string[] = [];
@@ -116,14 +118,14 @@ export class PhoneBoothSessionManager {
       );
       if (preferred) utterance.voice = preferred;
 
-      this.notify({ isAgentSpeaking: true });
+      this.notify({ isAgentSpeaking: true, currentAgentSentence: textToSpeak });
 
       utterance.onend = () => {
         this.isProcessingQueue = false;
         if (this.speechQueue.length > 0) {
           this.processSpeechQueue();
         } else {
-          this.notify({ isAgentSpeaking: false });
+          this.notify({ isAgentSpeaking: false, currentAgentSentence: '' });
         }
       };
 
@@ -132,7 +134,7 @@ export class PhoneBoothSessionManager {
         if (this.speechQueue.length > 0) {
           this.processSpeechQueue();
         } else {
-          this.notify({ isAgentSpeaking: false });
+          this.notify({ isAgentSpeaking: false, currentAgentSentence: '' });
         }
       };
 
@@ -140,7 +142,7 @@ export class PhoneBoothSessionManager {
     } catch (e) {
       console.warn('TTS playback error:', e);
       this.isProcessingQueue = false;
-      this.notify({ isAgentSpeaking: false });
+      this.notify({ isAgentSpeaking: false, currentAgentSentence: '' });
     }
   }
 
@@ -152,7 +154,7 @@ export class PhoneBoothSessionManager {
     this.isProcessingQueue = false;
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
-      this.notify({ isAgentSpeaking: false });
+      this.notify({ isAgentSpeaking: false, currentAgentSentence: '' });
     }
   }
 
@@ -165,6 +167,7 @@ export class PhoneBoothSessionManager {
   public async startCall(serverUrl: string = getSavedPhoneBoothWsUrl()): Promise<boolean> {
     this.startTime = Date.now();
     this.turnCounter = 0;
+    this.turns = [];
     this.speechQueue = [];
     this.isProcessingQueue = false;
     this.currentAgentBubbleText = "";
@@ -259,14 +262,20 @@ export class PhoneBoothSessionManager {
 
       this.currentAgentBubbleText = (this.currentAgentBubbleText + ' ' + sentence).trim();
 
-      this.turnCounter += 1;
-      const turnObj: PhoneBoothTurn = {
-        turn: this.turnCounter,
-        speaker: 'agent',
-        text: this.currentAgentBubbleText,
-        emotion: emotion,
-        timestamp: Date.now()
-      };
+      if (this.turns.length > 0 && this.turns[this.turns.length - 1].speaker === 'agent') {
+        this.turns[this.turns.length - 1].text = this.currentAgentBubbleText;
+        this.turns[this.turns.length - 1].emotion = emotion;
+      } else {
+        this.turnCounter += 1;
+        const turnObj: PhoneBoothTurn = {
+          turn: this.turnCounter,
+          speaker: 'agent',
+          text: sentence,
+          emotion: emotion,
+          timestamp: Date.now()
+        };
+        this.turns.push(turnObj);
+      }
 
       // Sync to Firebase live transcript
       if (this.currentConversationKey) {
@@ -285,7 +294,9 @@ export class PhoneBoothSessionManager {
       }
 
       this.notify({
-        currentEmotion: emotion
+        turns: [...this.turns],
+        currentEmotion: emotion,
+        currentAgentSentence: sentence
       });
     }
 
@@ -336,6 +347,10 @@ export class PhoneBoothSessionManager {
       text: text.trim(),
       timestamp: Date.now()
     };
+    this.turns.push(turnObj);
+    this.notify({
+      turns: [...this.turns]
+    });
 
     // 1. Sync student turn immediately to Firebase
     if (this.currentConversationKey) {

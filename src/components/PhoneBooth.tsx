@@ -60,6 +60,12 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
   const [tempWsUrl, setTempWsUrl] = useState(serverUrl);
   const [recognition, setRecognition] = useState<any>(null);
 
+  // Live Spoken Monitor: What AI Hears & What AI Says
+  const [currentAgentSpeakingText, setCurrentAgentSpeakingText] = useState('');
+  const [lastAgentSpeech, setLastAgentSpeech] = useState('');
+  const [interimStudentText, setInterimStudentText] = useState('');
+  const [lastStudentSpeech, setLastStudentSpeech] = useState('');
+
   const turnsEndRef = useRef<HTMLDivElement | null>(null);
   const durationTimerRef = useRef<number | null>(null);
   const countdownTimerRef = useRef<number | null>(null);
@@ -122,6 +128,12 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
     const unsubscribe = phoneBoothManager.subscribe((state) => {
       if (state.isConnected !== undefined) setIsConnected(state.isConnected);
       if (state.isAgentSpeaking !== undefined) setIsAgentSpeaking(state.isAgentSpeaking);
+      if (state.currentAgentSentence !== undefined) {
+        setCurrentAgentSpeakingText(state.currentAgentSentence);
+        if (state.currentAgentSentence) {
+          setLastAgentSpeech(state.currentAgentSentence);
+        }
+      }
       if (state.currentEmotion) setCurrentEmotion(state.currentEmotion);
       if (state.inquiryState) setInquiryState(state.inquiryState);
       if (state.extractedSlots) setExtractedSlots(prev => ({ ...prev, ...state.extractedSlots }));
@@ -132,7 +144,7 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
     return () => unsubscribe();
   }, []);
 
-  // Web Speech Recognition for Student Audio Input
+  // Web Speech Recognition for Student Audio Input with live interim results
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
@@ -140,21 +152,26 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
     if (SpeechRec) {
       const rec = new SpeechRec();
       rec.continuous = true;
-      rec.interimResults = false;
+      rec.interimResults = true;
       rec.lang = 'en-US';
 
       rec.onresult = (event: any) => {
-        const lastResult = event.results[event.results.length - 1];
-        if (lastResult.isFinal) {
-          const spoken = lastResult[0].transcript.trim();
-          if (spoken.length > 0) {
-            console.log('🎤 Student said:', spoken);
-            setTurns(prev => [
-              ...prev,
-              { turn: prev.length + 1, speaker: 'student', text: spoken, timestamp: Date.now() }
-            ]);
-            phoneBoothManager.sendStudentSpeech(spoken);
+        let interim = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            const spoken = event.results[i][0].transcript.trim();
+            if (spoken.length > 0) {
+              console.log('🎤 Student said:', spoken);
+              setLastStudentSpeech(spoken);
+              setInterimStudentText('');
+              phoneBoothManager.sendStudentSpeech(spoken);
+            }
+          } else {
+            interim += event.results[i][0].transcript;
           }
+        }
+        if (interim.trim()) {
+          setInterimStudentText(interim.trim());
         }
       };
 
@@ -180,6 +197,10 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
     setSubmittedReportId(null);
     setTurns([]);
     setExtractedSlots({});
+    setInterimStudentText('');
+    setLastStudentSpeech('');
+    setCurrentAgentSpeakingText('');
+    setLastAgentSpeech('');
 
     toast.info('Connecting to SafeSpeak AI Assistant...', { duration: 2500 });
     const success = await phoneBoothManager.startCall(serverUrl);
@@ -454,6 +475,75 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
                 </div>
               </div>
 
+              {/* ================================================================= */}
+              {/* LIVE DUAL VOICE MONITOR: What the AI Hears vs What the AI Says    */}
+              {/* ================================================================= */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                {/* Panel 1: What the AI Hears (Student Voice) */}
+                <div className={`p-4 rounded-xl border transition-all duration-300 relative overflow-hidden ${
+                  !isAgentSpeaking && isListening
+                    ? 'bg-emerald-500/10 border-emerald-500/50 shadow-lg shadow-emerald-500/10 ring-2 ring-emerald-500/20'
+                    : 'bg-muted/30 border-border/70'
+                }`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                      <Mic className={`w-4 h-4 ${!isAgentSpeaking ? 'animate-pulse text-emerald-500' : ''}`} />
+                      👂 What the AI Hears
+                    </span>
+                    <Badge variant={!isAgentSpeaking ? "default" : "outline"} className={`text-[10px] ${!isAgentSpeaking ? 'bg-emerald-600 animate-pulse text-white' : ''}`}>
+                      {interimStudentText ? 'Hearing You...' : !isAgentSpeaking ? 'Mic Active' : 'Waiting'}
+                    </Badge>
+                  </div>
+                  <div className="min-h-[58px] flex items-center">
+                    {interimStudentText ? (
+                      <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300 animate-pulse leading-snug">
+                        &ldquo;{interimStudentText}&hellip;&rdquo;
+                      </p>
+                    ) : lastStudentSpeech ? (
+                      <p className="text-sm font-medium text-foreground leading-snug">
+                        &ldquo;{lastStudentSpeech}&rdquo;
+                      </p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground italic">
+                        Listening to the handset microphone&hellip; Speak naturally in your own words.
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Panel 2: What the AI Says (SafeSpeak AI Spoken Voice) */}
+                <div className={`p-4 rounded-xl border transition-all duration-300 relative overflow-hidden ${
+                  isAgentSpeaking
+                    ? 'bg-blue-500/10 border-blue-500/50 shadow-lg shadow-blue-500/10 ring-2 ring-blue-500/20'
+                    : 'bg-muted/30 border-border/70'
+                }`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400">
+                      <Volume2 className={`w-4 h-4 ${isAgentSpeaking ? 'animate-bounce text-blue-500' : ''}`} />
+                      🗣️ What the AI Says
+                    </span>
+                    <Badge variant={isAgentSpeaking ? "default" : "outline"} className={`text-[10px] ${isAgentSpeaking ? 'bg-blue-600 animate-pulse text-white' : ''}`}>
+                      {isAgentSpeaking ? 'Speaking Now' : 'Finished'}
+                    </Badge>
+                  </div>
+                  <div className="min-h-[58px] flex items-center">
+                    {currentAgentSpeakingText ? (
+                      <p className="text-sm font-semibold text-blue-800 dark:text-blue-200 leading-snug">
+                        &ldquo;{currentAgentSpeakingText}&rdquo;
+                      </p>
+                    ) : lastAgentSpeech ? (
+                      <p className="text-sm font-medium text-foreground leading-snug">
+                        &ldquo;{lastAgentSpeech}&rdquo;
+                      </p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground italic">
+                        SafeSpeak AI is ready. Take your time—I am listening.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
               {/* Spoken Conversation Live Transcript */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
@@ -467,32 +557,64 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
                       SafeSpeak AI is preparing warm greeting...
                     </div>
                   ) : (
-                    turns.map((turn, idx) => (
-                      <div
-                        key={idx}
-                        className={`flex flex-col ${turn.speaker === 'student' ? 'items-end' : 'items-start'} animate-fade-in`}
-                      >
-                        <div className="flex items-center gap-1.5 mb-1 px-1">
-                          <span className="text-[11px] font-semibold text-muted-foreground">
-                            {turn.speaker === 'student' ? 'You' : 'SafeSpeak AI'}
-                          </span>
-                          {turn.emotion && (
-                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">
-                              {turn.emotion}
-                            </Badge>
-                          )}
-                        </div>
+                    <>
+                      {turns.map((turn, idx) => (
                         <div
-                          className={`max-w-[85%] rounded-2xl px-4 py-3 shadow-sm ${
-                            turn.speaker === 'student'
-                              ? 'bg-emerald-600 text-white rounded-tr-none'
-                              : 'bg-card border text-card-foreground rounded-tl-none'
-                          }`}
+                          key={idx}
+                          className={`flex flex-col ${turn.speaker === 'student' ? 'items-end' : 'items-start'} animate-fade-in`}
                         >
-                          {turn.text}
+                          <div className="flex items-center gap-1.5 mb-1 px-1">
+                            <span className={`text-[11px] font-bold flex items-center gap-1 ${
+                              turn.speaker === 'student' ? 'text-emerald-600 dark:text-emerald-400' : 'text-blue-600 dark:text-blue-400'
+                            }`}>
+                              {turn.speaker === 'student' ? '👂 You (What AI Heard)' : '🗣️ SafeSpeak AI (What AI Said)'}
+                            </span>
+                            {turn.emotion && (
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">
+                                {turn.emotion}
+                              </Badge>
+                            )}
+                          </div>
+                          <div
+                            className={`max-w-[85%] rounded-2xl px-4 py-3 shadow-sm ${
+                              turn.speaker === 'student'
+                                ? 'bg-emerald-600 text-white rounded-tr-none'
+                                : 'bg-card border text-card-foreground rounded-tl-none font-normal'
+                            }`}
+                          >
+                            {turn.text}
+                          </div>
                         </div>
-                      </div>
-                    ))
+                      ))}
+
+                      {/* Live Interim Student Speech Bubble */}
+                      {interimStudentText && (
+                        <div className="flex flex-col items-end animate-pulse">
+                          <div className="flex items-center gap-1.5 mb-1 px-1">
+                            <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                              <Mic className="w-3 h-3 animate-spin" /> Hearing you in real-time...
+                            </span>
+                          </div>
+                          <div className="max-w-[85%] rounded-2xl px-4 py-3 shadow-sm bg-emerald-600/80 text-white rounded-tr-none border border-emerald-400 italic">
+                            &ldquo;{interimStudentText}&hellip;&rdquo;
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Live Streaming Agent Speaking Bubble */}
+                      {isAgentSpeaking && currentAgentSpeakingText && (
+                        <div className="flex flex-col items-start animate-fade-in">
+                          <div className="flex items-center gap-1.5 mb-1 px-1">
+                            <span className="text-[11px] font-bold text-blue-600 dark:text-blue-400 flex items-center gap-1">
+                              <Volume2 className="w-3 h-3 animate-bounce" /> SafeSpeak AI Speaking...
+                            </span>
+                          </div>
+                          <div className="max-w-[85%] rounded-2xl px-4 py-3 shadow-sm bg-blue-500/15 border border-blue-500/40 text-blue-900 dark:text-blue-200 rounded-tl-none font-medium">
+                            &ldquo;{currentAgentSpeakingText}&rdquo;
+                          </div>
+                        </div>
+                      )}
+                    </>
                   )}
                   <div ref={turnsEndRef} />
                 </div>
