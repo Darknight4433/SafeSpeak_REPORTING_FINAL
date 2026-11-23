@@ -805,8 +805,12 @@ export class PhoneBoothSessionManager {
 
     // 3. Write Synthesized Report to Firebase
     try {
+      const rawEscalation = (currentSlots as any).escalation_decision || {};
+      const aiRequestedHigherAuth = rawEscalation.reporting_pathway === 'higher_authority';
       const isTeacher = currentSlots.category === 'teacher_involved' || (currentSlots.implicated_person && /teacher|staff|principal|coach|sir|madam|miss/i.test(currentSlots.implicated_person));
       const isL3 = currentSlots.severity_level === 'L3' || currentSlots.is_escalation_required;
+      const requiresHigherAuthority = aiRequestedHigherAuth || isTeacher || isL3;
+
       const categoryVal = currentSlots.category || (isTeacher ? 'teacher_involved' : 'safety');
       const intensityVal = isL3 || currentSlots.immediate_danger ? 'extreme' : currentSlots.severity_level === 'L2' ? 'high' : 'medium';
 
@@ -826,7 +830,9 @@ export class PhoneBoothSessionManager {
         report_id: reportIdStr,
         reportId: reportIdStr,
         reportNumber: this.currentReportNumber,
-        report_status: 'pending_review',
+        report_status: requiresHigherAuthority ? 'escalated' : 'pending_review',
+        status: requiresHigherAuthority ? 'escalated' : 'received',
+        isEscalated: requiresHigherAuthority,
         created_at: serverTimestamp(),
         timestamp: serverTimestamp(),
         durationSeconds: durationSeconds,
@@ -870,7 +876,13 @@ export class PhoneBoothSessionManager {
           human_review_required: true
         },
 
-        // 6. Report Quality & Evidence Layer
+        // 6. AI Escalation Pathway
+        escalation_decision: {
+          reporting_pathway: requiresHigherAuthority ? 'higher_authority' : 'normal',
+          reason: rawEscalation.reason || (isTeacher ? 'Teacher or school staff implicated' : isL3 ? 'Critical severity L3 safety risk' : 'Standard peer report')
+        },
+
+        // 7. Report Quality & Evidence Layer
         report_quality: {
           missing_fields: rawQuality.missing_fields || [],
           ai_confidence: rawQuality.ai_confidence || 'direct_statements'
@@ -881,7 +893,7 @@ export class PhoneBoothSessionManager {
           location_evidence: rawEvidence.location_evidence || (currentSlots.location ? 'direct' : 'unknown')
         },
 
-        // 7. Human Review Tracking
+        // 8. Human Review Tracking
         review: {
           reviewer_id: null,
           reviewed_at: null,
@@ -892,6 +904,7 @@ export class PhoneBoothSessionManager {
         category: categoryVal,
         intensity: intensityVal,
         severityLevel: currentSlots.severity_level || (isL3 ? 'L3' : 'L1'),
+        riskLevel: requiresHigherAuthority ? 'High' : 'Normal',
         description: currentSlots.summary || `Phone booth voice report (${durationSeconds}s call)`,
         location: currentSlots.location || SCHOOL_CONFIG.name,
         incidentTimeframe: currentSlots.incident_timeframe || null,
@@ -900,15 +913,23 @@ export class PhoneBoothSessionManager {
         isAnonymous: isAnonPref,
         implicatedName: currentSlots.implicated_person || null,
         personType: isTeacher ? 'teacher' : 'student',
-        extractedSlots: currentSlots
+        extractedSlots: currentSlots,
+        ...(requiresHigherAuthority ? {
+          escalationMeta: {
+            escalated_by: 'ai_phone_booth_evaluation',
+            escalated_reason: rawEscalation.reason || (isTeacher ? 'Teacher or staff member implicated' : 'Critical urgency'),
+            pathway: 'higher_authority',
+            timestamp: serverTimestamp()
+          }
+        } : {})
       };
 
-      // Push to standard reports or higher authority (for teacher misconduct or extreme harm)
-      const targetNode = (isTeacher || isL3) ? 'higher_authority_reports' : 'reports';
+      // Push to standard reports or higher authority based on AI escalation decision
+      const targetNode = requiresHigherAuthority ? 'higher_authority_reports' : 'reports';
       const pushed = await push(ref(database, targetNode), reportPayload);
       savedReportKey = pushed.key;
 
-      console.log(`✅ Phone Booth report stored to Firebase at ${targetNode}/${savedReportKey}`);
+      console.log(`✅ Phone Booth report stored to Firebase at ${targetNode}/${savedReportKey} (${requiresHigherAuthority ? 'Higher Authority' : 'Normal'})`);
     } catch (repErr) {
       console.error('Failed to save synthesized report to Firebase:', repErr);
     }

@@ -113,8 +113,8 @@ const formSchema = z.object({
 });
 
 const Report = () => {
-  // Primary manual form vs Voice booth switch
-  const [reportingMode, setReportingMode] = useState<'manual' | 'booth'>('manual');
+  // Primary Voice Phone Booth vs Manual form switch (defaults to Phone Booth)
+  const [reportingMode, setReportingMode] = useState<'manual' | 'booth'>('booth');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isAnonymous, setIsAnonymous] = useState(false);
   const [inputMode, setInputMode] = useState<'text' | 'voice'>('text');
@@ -382,20 +382,8 @@ const Report = () => {
             </p>
           </div>
 
-          {/* Mode Switch Bar: Manual Form (Primary) vs. Voice Phone Booth */}
+          {/* Mode Switch Bar: Voice Phone Booth (Primary) vs. Manual Typing Form */}
           <div className="flex items-center justify-center gap-2 p-1.5 rounded-2xl bg-muted/60 border max-w-md mx-auto shadow-sm">
-            <button
-              type="button"
-              onClick={() => setReportingMode('manual')}
-              className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-sm font-semibold transition-all ${
-                reportingMode === 'manual'
-                  ? 'bg-primary text-primary-foreground shadow-md'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              <BookOpen className="w-4 h-4" />
-              Manual Report Form
-            </button>
             <button
               type="button"
               onClick={() => setReportingMode('booth')}
@@ -406,7 +394,19 @@ const Report = () => {
               }`}
             >
               <Phone className="w-4 h-4" />
-              Voice Phone Booth
+              Voice Phone Booth (AI Station)
+            </button>
+            <button
+              type="button"
+              onClick={() => setReportingMode('manual')}
+              className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-sm font-semibold transition-all ${
+                reportingMode === 'manual'
+                  ? 'bg-primary text-primary-foreground shadow-md'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <BookOpen className="w-4 h-4" />
+              Manual Typing Form
             </button>
           </div>
 
