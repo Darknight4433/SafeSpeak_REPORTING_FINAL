@@ -83,6 +83,8 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
   // Persistent Speech & Echo Cancellation Refs
   const recognitionRef = useRef<any>(null);
   const isListeningRef = useRef<boolean>(false);
+  const accumulatedSpeechRef = useRef<string>('');
+  const hasWorkingWebSpeechRef = useRef<boolean>(false);
   const lastDispatchedTextRef = useRef<{ text: string; time: number }>({ text: '', time: 0 });
   const isAgentSpeakingRef = useRef<boolean>(false);
   const lastAgentSpeechRef = useRef<string>('');
@@ -209,7 +211,8 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
         }
       },
       onSpeechEnd: (wavBase64) => {
-        if (callStateRef.current === 'active') {
+        // Only stream WAV to ElevenLabs Scribe STT if WebSpeech is NOT active on this browser (e.g. Raspberry Pi offline)
+        if (!hasWorkingWebSpeechRef.current && callStateRef.current === 'active') {
           console.log("🎤 [VAD Audio Segment Completed] Sending 16kHz WAV to AI Server Scribe STT...");
           phoneBoothManager.sendStudentAudio(wavBase64);
         }
@@ -244,15 +247,18 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
     rec.lang = 'en-US';
 
     rec.onresult = (event: any) => {
+      hasWorkingWebSpeechRef.current = true;
       let interim = '';
       let spokenFinal = '';
       for (let i = event.resultIndex; i < event.results.length; ++i) {
         if (event.results[i].isFinal) {
-          spokenFinal = event.results[i][0].transcript.trim();
+          spokenFinal += ' ' + event.results[i][0].transcript.trim();
         } else {
           interim += event.results[i][0].transcript;
         }
       }
+      spokenFinal = spokenFinal.trim();
+      interim = interim.trim();
 
       const activeText = (spokenFinal || interim).trim();
       if (!activeText) return;
@@ -263,6 +269,7 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
         if (WAKE_WORD_REGEX.test(activeText)) {
           console.log("🌟 [WAKE WORD DETECTED] Waking up SafeSpeak AI voice station:", activeText);
           setInterimStudentText('');
+          accumulatedSpeechRef.current = '';
           handlePickUp();
         }
         return;
@@ -283,43 +290,37 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
         setIsAgentSpeaking(false);
       }
 
-      // 3. FINAL SPEECH DISPATCH
+      // 3. ACCUMULATE WORDS PATIENTLY (Allow student to breathe and formulate thoughts)
       if (spokenFinal) {
-        // Duplicate check within 2.5s
-        const now = Date.now();
-        if (spokenFinal === lastDispatchedTextRef.current.text && now - lastDispatchedTextRef.current.time < 2500) {
-          return;
-        }
-        lastDispatchedTextRef.current = { text: spokenFinal, time: now };
-
-        if (speechSilenceTimeoutRef.current) clearTimeout(speechSilenceTimeoutRef.current);
-        console.log('🎤 Student said (final):', spokenFinal);
-        setLastStudentSpeech(spokenFinal);
-        setInterimStudentText('');
-        phoneBoothManager.sendStudentSpeech(spokenFinal);
-        return;
+        accumulatedSpeechRef.current = (accumulatedSpeechRef.current + ' ' + spokenFinal).trim();
       }
 
-      // 4. INTERIM SPEECH DISPATCH (700ms silence auto-send)
-      if (interim.trim()) {
-        const spokenInterim = interim.trim();
-        setInterimStudentText(spokenInterim);
+      // Display real-time live preview of the complete sentence being formed
+      const liveSentence = (accumulatedSpeechRef.current + ' ' + interim).trim();
+      setInterimStudentText(liveSentence);
 
-        if (speechSilenceTimeoutRef.current) clearTimeout(speechSilenceTimeoutRef.current);
-        speechSilenceTimeoutRef.current = window.setTimeout(() => {
+      // 4. PATIENT SILENCE DEBOUNCE:
+      // Wait for 1.8 seconds of complete silence before dispatching the turn.
+      // If the student speaks again within 1.8s, the timer resets and words continue accumulating!
+      if (speechSilenceTimeoutRef.current) {
+        clearTimeout(speechSilenceTimeoutRef.current);
+      }
+
+      speechSilenceTimeoutRef.current = window.setTimeout(() => {
+        const fullUtterance = (accumulatedSpeechRef.current + ' ' + interim).trim();
+        if (fullUtterance.length >= 2) {
           const now = Date.now();
-          if (spokenInterim.length > 1) {
-            if (spokenInterim === lastDispatchedTextRef.current.text && now - lastDispatchedTextRef.current.time < 2500) {
-              return;
-            }
-            lastDispatchedTextRef.current = { text: spokenInterim, time: now };
-            console.log('⚡ Fast silence auto-dispatch:', spokenInterim);
-            setLastStudentSpeech(spokenInterim);
-            setInterimStudentText('');
-            phoneBoothManager.sendStudentSpeech(spokenInterim);
+          if (fullUtterance === lastDispatchedTextRef.current.text && now - lastDispatchedTextRef.current.time < 3000) {
+            return;
           }
-        }, 700);
-      }
+          lastDispatchedTextRef.current = { text: fullUtterance, time: now };
+          console.log('🎤 [Patient Turn Completed]:', fullUtterance);
+          setLastStudentSpeech(fullUtterance);
+          setInterimStudentText('');
+          accumulatedSpeechRef.current = '';
+          phoneBoothManager.sendStudentSpeech(fullUtterance);
+        }
+      }, 1800);
     };
 
     let consecutiveWebSpeechErrors = 0;

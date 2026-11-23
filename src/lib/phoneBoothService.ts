@@ -105,7 +105,7 @@ export class PhoneBoothSessionManager {
   private startTime: number = 0;
   private listeners: ((state: Partial<PhoneBoothState>) => void)[] = [];
   private turns: PhoneBoothTurn[] = [];
-  
+
   // Phase 3 Streaming Audio Queue & Barge-In State
   private speechQueue: SpeechQueueItem[] = [];
   private isProcessingQueue: boolean = false;
@@ -269,8 +269,8 @@ export class PhoneBoothSessionManager {
       utterance.lang = 'en-US';
 
       const voices = window.speechSynthesis.getVoices();
-      const preferred = voices.find(v => 
-        (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('Karen')) 
+      const preferred = voices.find(v =>
+        (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('Karen'))
         && v.lang.startsWith('en')
       );
       if (preferred) utterance.voice = preferred;
@@ -310,7 +310,7 @@ export class PhoneBoothSessionManager {
       try {
         this.currentAudio.pause();
         this.currentAudio.currentTime = 0;
-      } catch {}
+      } catch { }
       this.currentAudio = null;
     }
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
@@ -336,7 +336,7 @@ export class PhoneBoothSessionManager {
         const timeout = setTimeout(() => {
           if (!resolved) {
             resolved = true;
-            try { testWs.close(); } catch {}
+            try { testWs.close(); } catch { }
             this.notify({ isConnected: false });
             resolve({ success: false, error: 'Connection timed out (3s). Check IP address and Windows Firewall.' });
           }
@@ -347,7 +347,7 @@ export class PhoneBoothSessionManager {
             resolved = true;
             clearTimeout(timeout);
             const latency = Date.now() - startTime;
-            try { testWs.close(); } catch {}
+            try { testWs.close(); } catch { }
             this.notify({ isConnected: true });
             resolve({ success: true, latencyMs: latency });
           }
@@ -372,6 +372,16 @@ export class PhoneBoothSessionManager {
    * Auto-probes candidate URLs in parallel and returns the first responding server address
    */
   public async findActiveServerUrl(preferredUrl?: string): Promise<string> {
+    const directUrl = preferredUrl || getSavedPhoneBoothWsUrl();
+    // If the user explicitly provided an external IP for the secondary laptop, connect directly!
+    if (directUrl && !directUrl.includes('localhost') && !directUrl.includes('127.0.0.1')) {
+      let clean = directUrl.trim();
+      if (!clean.startsWith('ws://') && !clean.startsWith('wss://')) clean = `ws://${clean}`;
+      console.log(`🎯 Directly targeting configured AI Voice Server on other laptop: ${clean}`);
+      savePhoneBoothWsUrl(clean);
+      return clean;
+    }
+
     const candidates = Array.from(new Set([
       preferredUrl,
       getSavedPhoneBoothWsUrl(),
@@ -392,7 +402,7 @@ export class PhoneBoothSessionManager {
           if (!clean.startsWith('ws://') && !clean.startsWith('wss://')) clean = `ws://${clean}`;
           const socket = new WebSocket(clean);
           const t = setTimeout(() => {
-            try { socket.close(); } catch {}
+            try { socket.close(); } catch { }
             onFail();
           }, 1500);
 
@@ -400,7 +410,7 @@ export class PhoneBoothSessionManager {
             if (!resolved) {
               resolved = true;
               clearTimeout(t);
-              try { socket.close(); } catch {}
+              try { socket.close(); } catch { }
               console.log(`🎯 Auto-discovered active SafeSpeak AI server at: ${clean}`);
               savePhoneBoothWsUrl(clean);
               resolve(clean);
@@ -446,7 +456,7 @@ export class PhoneBoothSessionManager {
     try {
       this.currentReportNumber = await getNextReportNumber();
       const reportIdStr = formatReportId(this.currentReportNumber);
-      
+
       const convRef = push(ref(database, 'conversations'));
       this.currentConversationKey = convRef.key;
 
@@ -573,13 +583,13 @@ export class PhoneBoothSessionManager {
       this.speechQueue.push({ text: sentence, audioBase64 });
       this.processSpeechQueue();
 
-      this.currentAgentBubbleText = (this.currentAgentBubbleText + ' ' + sentence).trim();
-
       if (this.turns.length > 0 && this.turns[this.turns.length - 1].speaker === 'agent') {
+        this.currentAgentBubbleText = (this.currentAgentBubbleText + ' ' + sentence).trim();
         this.turns[this.turns.length - 1].text = this.currentAgentBubbleText;
         this.turns[this.turns.length - 1].emotion = emotion;
       } else {
         this.turnCounter += 1;
+        this.currentAgentBubbleText = sentence;
         const turnObj: PhoneBoothTurn = {
           turn: this.turnCounter,
           speaker: 'agent',
@@ -627,7 +637,7 @@ export class PhoneBoothSessionManager {
             lastUpdated: serverTimestamp(),
             extractedSlots: slots
           });
-        } catch (e) {}
+        } catch (e) { }
       }
 
       this.notify({
@@ -781,7 +791,7 @@ export class PhoneBoothSessionManager {
       try {
         this.ws.send(JSON.stringify({ type: 'call_ended' }));
         this.ws.close();
-      } catch {}
+      } catch { }
     }
 
     const durationSeconds = Math.round((Date.now() - this.startTime) / 1000);
@@ -945,3 +955,4 @@ export class PhoneBoothSessionManager {
 }
 
 export const phoneBoothManager = new PhoneBoothSessionManager();
+   

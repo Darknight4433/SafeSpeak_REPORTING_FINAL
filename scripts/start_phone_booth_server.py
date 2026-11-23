@@ -323,39 +323,52 @@ def generate_safespeak_empathy_sentences(conversation_history):
     full_text = " ".join(user_turns).lower()
 
     # Phase 4: Goodbye / Call Conclusion
-    if re.search(r'\b(goodbye|good bye|bye|bye bye|that\'s all|thats all|i\'m done|im done|thank you bye|hang up|end call|that is all|nothing else|see you|got to go|have to go|done now|finish)\b', last_text):
+    if re.search(r'\b(goodbye|good bye|bye|bye bye|that\'s all|thats all|i\'m done|im done|thank you bye|hang up|end call|that is all|nothing else|see you|got to go|have to go|done now|finish|no more|ready to finish)\b', last_text):
         return ["Thank you for sharing this with me.", "Your report has been safely noted for our counselors, and you did wonderfully by speaking up today. Take care, and goodbye!"]
 
-    # Phase 3: Anonymity decision
-    if re.search(r'\b(anonymous|stay anonymous|don\'t tell|dont tell|secret|private|no name|don\'t share my name)\b', last_text):
-        return ["I understand completely.", "We will keep this report anonymous, and our school counselors will look into it without identifying you."]
+    # Check if name was already provided anywhere in full conversation
+    name_in_full = re.search(r'\b(?:my name is|i am|i\'m|call me|name is)\s+([a-zA-Z]+)\b', full_text)
+    child_name = name_in_full.group(1).capitalize() if name_in_full else None
 
-    # Phase 3: Name voluntarily provided
-    name_match = re.search(r'\b(?:my name is|i am|i\'m|call me|name is)\s+([a-zA-Z]+)\b', last_text)
-    if name_match:
-        name = name_match.group(1).capitalize()
-        return [f"Thank you for trusting me with that, {name}.", "Would you prefer to share your name on this report with our counselors, or make this report without identifying yourself?"]
+    # Check if student just stated their name
+    name_in_last = re.search(r'\b(?:my name is|i am|i\'m|call me|name is)\s+([a-zA-Z]+)\b', last_text)
+    if name_in_last:
+        name = name_in_last.group(1).capitalize()
+        return [f"Thank you for sharing your name, {name}. I have noted that for the counselors.", "Is there anything else you would like to tell me before we finish?"]
 
-    # Phase 2: Bullying / Peer Concern
+    # If student confirmed sharing name or confirmed anonymity
+    if re.search(r'\b(yes|share it|share my name|with the counselors|share with counselors|prefer to share|i told that|i just told that)\b', last_text):
+        return ["Thank you for letting me know. I have recorded that for the counselors.", "Is there anything else you would like to share, or are you ready to finish?"]
+
+    # Anonymity decision
+    if re.search(r'\b(anonymous|stay anonymous|don\'t tell|dont tell|secret|private|no name|don\'t share my name|keep it anonymous)\b', last_text):
+        return ["I understand completely.", "We will keep this report anonymous, and our school counselors will look into it without identifying you. Is there anything else you need?"]
+
+    # Teacher / Staff involved
+    if re.search(r'\b(teacher|sir|madam|miss|coach|principal|staff|adult)\b', last_text):
+        return ["Thank you for sharing that with me. What you're experiencing is taken very seriously.", "Is there a counselor or another adult you feel comfortable talking to as well?"]
+
+    # Location / classroom mentioned
+    if re.search(r'\b(lunch|class|classroom|hallway|hall|bathroom|bus|playground|yard|after school|cafeteria|grade)\b', last_text):
+        if not child_name:
+            return ["I've noted that detail.", "Would you prefer to share your name with our counselors, or make this report anonymously?"]
+        else:
+            return ["I have safely noted that detail.", "Is there anything else that happened that you would like to mention?"]
+
+    # Bullying / Peer Concern
     if re.search(r'\b(bully|bullied|bullying|hit|push|pushed|tease|teasing|laugh|laughed|mean|mock|scared|hurting|upset|trouble)\b', last_text):
         if re.search(r'\b(repeat|repeating|keeps|always|every day|everyday|again)\b', full_text):
             return ["I am so sorry you are having to deal with that. It is completely unfair that this keeps happening.", "Does this usually happen at school, online, or somewhere else?"]
         else:
             return ["I am so sorry someone has been treating you that way. You did the right thing by speaking up today.", "Has this been happening repeatedly, or was it something that happened today?"]
 
-    # Teacher / Staff involved
-    if re.search(r'\b(teacher|sir|madam|miss|coach|principal|staff|adult)\b', last_text):
-        return ["Thank you for sharing that with me. What you're experiencing is taken very seriously.", "Is there a counselor or another adult you feel comfortable talking to as well?"]
-
-    # Location mentioned
-    if re.search(r'\b(lunch|class|classroom|hallway|hall|bathroom|bus|playground|yard|after school|cafeteria)\b', last_text):
-        return ["I've safely noted that detail.", "Would you prefer to share your name with our counselors, or make this report anonymously?"]
-
     # General gentle inquiry
     if len(user_turns) <= 2:
         return ["I hear you, and I am listening carefully.", "Has this been bothering you for a while?"]
-    else:
+    elif not child_name:
         return ["Thank you for trusting me with this.", "Would you prefer to share your name on this report, or keep it anonymous?"]
+    else:
+        return ["I have noted what you told me.", "Is there anything else on your mind, or would you like to finish the call?"]
 
 def generate_structured_report_offline(conversation_history):
     """Generates structured report JSON matching the official schema."""
