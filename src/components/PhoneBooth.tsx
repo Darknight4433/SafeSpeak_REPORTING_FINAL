@@ -88,6 +88,9 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
   const lastDispatchedTextRef = useRef<{ text: string; time: number }>({ text: '', time: 0 });
   const isAgentSpeakingRef = useRef<boolean>(false);
   const lastAgentSpeechRef = useRef<string>('');
+  const recentAgentSentencesRef = useRef<string[]>([]);
+  const agentSpeakingStartTimeRef = useRef<number>(0);
+  const agentSpeakingEndTimeRef = useRef<number>(0);
   const extractedSlotsRef = useRef(extractedSlots);
   const callStateRef = useRef(callState);
 
@@ -190,11 +193,25 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
   useEffect(() => {
     const unsubscribe = phoneBoothManager.subscribe((state) => {
       if (state.isConnected !== undefined) setIsConnected(state.isConnected);
-      if (state.isAgentSpeaking !== undefined) setIsAgentSpeaking(state.isAgentSpeaking);
+      if (state.isAgentSpeaking !== undefined) {
+        setIsAgentSpeaking(state.isAgentSpeaking);
+        isAgentSpeakingRef.current = state.isAgentSpeaking;
+        if (state.isAgentSpeaking) {
+          agentSpeakingStartTimeRef.current = Date.now();
+        } else {
+          agentSpeakingEndTimeRef.current = Date.now();
+        }
+      }
       if (state.currentAgentSentence !== undefined) {
         setCurrentAgentSpeakingText(state.currentAgentSentence);
         if (state.currentAgentSentence) {
           setLastAgentSpeech(state.currentAgentSentence);
+          lastAgentSpeechRef.current = state.currentAgentSentence;
+          recentAgentSentencesRef.current = [
+            state.currentAgentSentence,
+            ...recentAgentSentencesRef.current.slice(0, 4)
+          ];
+          agentSpeakingStartTimeRef.current = Date.now();
         }
       }
       if (state.currentEmotion) setCurrentEmotion(state.currentEmotion);
@@ -208,7 +225,17 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
       if (state.error) toast.error(state.error);
       if (state.shouldAutoHangup) {
         console.log("👋 Auto-hangup triggered hands-free by AI goodbye.");
-        handleHangUp();
+        if (isAgentSpeakingRef.current) {
+          console.log("⏳ [Auto-Hangup Deferred] Waiting for agent speech to finish before hanging up...");
+          const checkDone = setInterval(() => {
+            if (!isAgentSpeakingRef.current) {
+              clearInterval(checkDone);
+              handleHangUp();
+            }
+          }, 300);
+        } else {
+          handleHangUp();
+        }
       }
     });
 
@@ -233,12 +260,10 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
         }
       },
       onSpeechStart: () => {
-        // Instant Barge-In: if AI is speaking during active call, mute it immediately!
-        if (callStateRef.current === 'active' && isAgentSpeakingRef.current) {
-          console.log("🛑 [VAD INSTANT BARGE-IN] Voice detected -> Pausing AI speech immediately");
-          phoneBoothManager.stopSpeaking();
-          setIsAgentSpeaking(false);
-        }
+        // Acoustic protection: We intentionally do NOT kill AI speech here on raw microphone RMS volume.
+        // When laptop speakers play the AI's voice, the mic picks up volume > 0.035,
+        // which previously caused the AI to immediately mute itself midway!
+        // Genuine student barge-in is handled below with token-level acoustic echo filtering in WebSpeech.
       },
       onSpeechEnd: (wavBase64) => {
         // Only stream WAV to ElevenLabs Scribe STT if WebSpeech is NOT active on this browser (e.g. Raspberry Pi offline)
@@ -276,6 +301,30 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
     rec.interimResults = true;
     rec.lang = 'en-US';
 
+    const isEchoOfAgentSpeech = (heard: string): boolean => {
+      if (!heard || !heard.trim()) return false;
+      const cleanHeard = heard.toLowerCase().replace(/[^\w\s]/g, ' ').trim();
+      const heardWords = cleanHeard.split(/\s+/).filter(w => w.length > 1);
+      if (heardWords.length === 0) return true;
+
+      const allAgentText = [
+        lastAgentSpeechRef.current,
+        ...recentAgentSentencesRef.current
+      ].join(' ').toLowerCase().replace(/[^\w\s]/g, ' ');
+
+      if (allAgentText.includes(cleanHeard) || (allAgentText.length > 20 && cleanHeard.includes(allAgentText.slice(0, 30)))) {
+        return true;
+      }
+
+      const agentWordSet = new Set(allAgentText.split(/\s+/).filter(w => w.length > 1));
+      let matchedWords = 0;
+      for (const w of heardWords) {
+        if (agentWordSet.has(w)) matchedWords++;
+      }
+      const overlapRatio = matchedWords / heardWords.length;
+      return overlapRatio >= 0.45;
+    };
+
     rec.onresult = (event: any) => {
       hasWorkingWebSpeechRef.current = true;
       let interim = '';
@@ -305,19 +354,31 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
         return;
       }
 
-      // 2. INSTANT BARGE-IN (Mute AI voice immediately the moment student speaks)
+      const now = Date.now();
+      const isAIAudiblySpeaking = isAgentSpeakingRef.current || (now - agentSpeakingEndTimeRef.current < 1200);
+
+      // Acoustic Echo Check: Ignore if mic picks up words that the AI just spoke or is speaking
+      if (isAIAudiblySpeaking && isEchoOfAgentSpeech(activeText)) {
+        return;
+      }
+
+      // 2. GENUINE STUDENT BARGE-IN (Mute AI only when the student actually speaks distinct new words)
       if (callStateRef.current === 'active' && isAgentSpeakingRef.current) {
-        // Echo check: Ignore if AI voice is currently speaking this exact phrase
-        if (lastAgentSpeechRef.current) {
-          const aiSpeech = lastAgentSpeechRef.current.toLowerCase();
-          const studentLower = activeText.toLowerCase();
-          if (aiSpeech.includes(studentLower) || studentLower.includes(aiSpeech.slice(0, 20))) {
+        const timeSinceSpeechStart = now - agentSpeakingStartTimeRef.current;
+        // 800ms grace period so audio speaker transients don't trigger barge-in
+        if (timeSinceSpeechStart > 800) {
+          const heardWords = activeText.toLowerCase().replace(/[^\w\s]/g, '').trim().split(/\s+/).filter(Boolean);
+          const isExplicitInterrupt = /\b(stop|wait|hold on|listen|no|pause|excuse me|actually|wait a minute)\b/i.test(activeText);
+          if (isExplicitInterrupt || heardWords.length >= 2) {
+            console.log("🛑 [GENUINE STUDENT BARGE-IN] Student spoke -> Muting AI voice:", activeText);
+            phoneBoothManager.stopSpeaking();
+            setIsAgentSpeaking(false);
+          } else {
             return;
           }
+        } else {
+          return;
         }
-        console.log("🛑 [INSTANT BARGE-IN] Student spoke -> Muting AI voice immediately");
-        phoneBoothManager.stopSpeaking();
-        setIsAgentSpeaking(false);
       }
 
       // 3. ACCUMULATE WORDS PATIENTLY (Allow student to breathe and formulate thoughts)

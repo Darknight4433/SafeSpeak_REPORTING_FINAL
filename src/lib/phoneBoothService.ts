@@ -114,6 +114,8 @@ export class PhoneBoothSessionManager {
   private isProcessingQueue: boolean = false;
   private currentAgentBubbleText: string = "";
   private currentAudio: HTMLAudioElement | null = null;
+  private currentUtterance: SpeechSynthesisUtterance | null = null;
+  private ttsKeepAliveTimer: any = null;
   private currentKeyIndex: number = 0;
   private pendingHangup: boolean = false;
 
@@ -266,7 +268,14 @@ export class PhoneBoothSessionManager {
     }
 
     try {
+      if (this.ttsKeepAliveTimer) {
+        clearInterval(this.ttsKeepAliveTimer);
+        this.ttsKeepAliveTimer = null;
+      }
+      window.speechSynthesis.cancel();
+
       const utterance = new SpeechSynthesisUtterance(textToSpeak);
+      this.currentUtterance = utterance; // Prevent V8 garbage collection mid-speech
       utterance.rate = 0.95;
       utterance.pitch = 1.05;
       utterance.lang = 'en-US';
@@ -278,7 +287,12 @@ export class PhoneBoothSessionManager {
       );
       if (preferred) utterance.voice = preferred;
 
-      utterance.onend = () => {
+      const finishSpeech = () => {
+        if (this.ttsKeepAliveTimer) {
+          clearInterval(this.ttsKeepAliveTimer);
+          this.ttsKeepAliveTimer = null;
+        }
+        this.currentUtterance = null;
         this.isProcessingQueue = false;
         if (this.speechQueue.length > 0) {
           this.processSpeechQueue();
@@ -287,17 +301,32 @@ export class PhoneBoothSessionManager {
         }
       };
 
-      utterance.onerror = () => {
-        this.isProcessingQueue = false;
-        if (this.speechQueue.length > 0) {
-          this.processSpeechQueue();
-        } else {
-          this.onSpeechFinished();
-        }
+      utterance.onend = finishSpeech;
+      utterance.onerror = (err) => {
+        console.warn('SpeechSynthesis playback issue:', err);
+        finishSpeech();
       };
+
+      // Chromium keep-alive loop to prevent Chrome from silently pausing synthesis after ~10 seconds
+      this.ttsKeepAliveTimer = window.setInterval(() => {
+        if (typeof window !== 'undefined' && 'speechSynthesis' in window && window.speechSynthesis.speaking) {
+          window.speechSynthesis.pause();
+          window.speechSynthesis.resume();
+        } else {
+          if (this.ttsKeepAliveTimer) {
+            clearInterval(this.ttsKeepAliveTimer);
+            this.ttsKeepAliveTimer = null;
+          }
+        }
+      }, 4500);
 
       window.speechSynthesis.speak(utterance);
     } catch (e) {
+      if (this.ttsKeepAliveTimer) {
+        clearInterval(this.ttsKeepAliveTimer);
+        this.ttsKeepAliveTimer = null;
+      }
+      this.currentUtterance = null;
       this.isProcessingQueue = false;
       this.onSpeechFinished();
     }
@@ -309,6 +338,7 @@ export class PhoneBoothSessionManager {
   public stopSpeaking() {
     this.speechQueue = [];
     this.isProcessingQueue = false;
+    this.pendingHangup = false;
     if (this.currentAudio) {
       try {
         this.currentAudio.pause();
@@ -316,8 +346,13 @@ export class PhoneBoothSessionManager {
       } catch {}
       this.currentAudio = null;
     }
+    if (this.ttsKeepAliveTimer) {
+      clearInterval(this.ttsKeepAliveTimer);
+      this.ttsKeepAliveTimer = null;
+    }
+    this.currentUtterance = null;
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
+      try { window.speechSynthesis.cancel(); } catch {}
     }
     this.notify({ isAgentSpeaking: false, currentAgentSentence: '' });
   }
@@ -654,7 +689,13 @@ export class PhoneBoothSessionManager {
 
     // 3. Voice-Activated Goodbye / Auto-Hangup Signal
     if (data.type === 'agent_goodbye_conclusion') {
-      this.notify({ shouldAutoHangup: true });
+      const isStillSpeaking = this.isProcessingQueue || this.speechQueue.length > 0 || this.currentAudio !== null || (typeof window !== 'undefined' && 'speechSynthesis' in window && window.speechSynthesis.speaking);
+      if (isStillSpeaking) {
+        console.log("⏳ [Auto-Hangup Deferred] Waiting for AI goodbye speech to complete before hanging up...");
+        this.pendingHangup = true;
+      } else {
+        this.notify({ shouldAutoHangup: true });
+      }
     }
   }
 
