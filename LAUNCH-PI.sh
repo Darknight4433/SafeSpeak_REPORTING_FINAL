@@ -36,6 +36,14 @@ if ! curl -s http://127.0.0.1:8080 >/dev/null 2>&1; then
 fi
 
 # 4. Open hardware-accelerated Chromium in Kiosk mode
+LAPTOP_TARGET="${1:-192.168.10.39}"
+if [[ "$LAPTOP_TARGET" =~ ^ws:// ]] || [[ "$LAPTOP_TARGET" =~ ^wss:// ]]; then
+    WS_TARGET="$LAPTOP_TARGET"
+else
+    WS_TARGET="ws://${LAPTOP_TARGET}:8765"
+fi
+
+echo "🔗 Connecting to SafeSpeak AI Server at: $WS_TARGET"
 echo "🚀 Opening SafeSpeak Phone Booth..."
 BROWSER_CMD="chromium-browser"
 if ! command -v chromium-browser >/dev/null 2>&1; then
@@ -52,4 +60,4 @@ $BROWSER_CMD \
     --touch-events=enabled \
     --disable-pinch \
     --overscroll-history-navigation=0 \
-    "http://localhost:8080/#/?ws=ws://192.168.10.44:8765"
+    "http://localhost:8080/#/?ws=${WS_TARGET}"

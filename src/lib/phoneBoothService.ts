@@ -43,8 +43,8 @@ export interface PhoneBoothState {
   error: string | null;
 }
 
-export const SECONDARY_LAPTOP_WS_URL = 'ws://192.168.10.44:8765';
-export const MDNS_LAPTOP_WS_URL = 'ws://desktop-5tk1mc6.local:8765';
+export const SECONDARY_LAPTOP_WS_URL = 'ws://192.168.10.39:8765';
+export const MDNS_LAPTOP_WS_URL = 'ws://desktop-4l1f9jg.local:8765';
 const DEFAULT_WS_URL = SECONDARY_LAPTOP_WS_URL;
 const STORAGE_KEY_WS = 'safespeak_phone_booth_ws';
 
@@ -577,16 +577,16 @@ export class PhoneBoothSessionManager {
       }
     }
 
-    // 2. Transmit to secondary laptop AI over WebSocket or run client-side offline extractor
+    // 2. Transmit to secondary laptop AI over WebSocket or run client-side offline conversational AI
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({
         type: 'student_speech',
         text: text.trim()
       }));
     } else {
-      console.warn('WebSocket not open. Preserving speech and running local safeguarding extractor...');
+      console.warn('WebSocket not open. Running intelligent local conversational fallback with ElevenLabs HD Voice...');
       try {
-        const { analyzeReportDemo } = await import('./safeSpeakAI');
+        const { analyzeReportDemo, getSupportiveMessageAndFeelings } = await import('./safeSpeakAI');
         const localAnalysis = await analyzeReportDemo(text.trim());
         const isEscalate = localAnalysis.risk_level === 'L3';
 
@@ -602,8 +602,42 @@ export class PhoneBoothSessionManager {
           currentEmotion: localAnalysis.sentiment || 'Heard',
           extractedSlots: offlineSlots
         });
+
+        // Check if student said goodbye
+        const isGoodbye = /\b(goodbye|good bye|bye|bye bye|that's all|thats all|i'm done|im done|thank you bye|hang up|end call|that is all|nothing else|see you|got to go|have to go|done now|finish)\b/i.test(text);
+
+        let aiReply = "";
+        if (isGoodbye) {
+          aiReply = "Thank you for sharing this with me. Your report has been safely noted for our counselors, and you did wonderfully by speaking up today. Take care, and goodbye!";
+        } else {
+          const supp = getSupportiveMessageAndFeelings(localAnalysis.category, localAnalysis.risk_level);
+          aiReply = supp.message ? `${supp.message} Take your time—is there anything else you would like to share?` : "I hear you, and thank you for trusting me with that. What you are experiencing matters, and I am listening. Is there anything else you'd like to share?";
+        }
+
+        // Add AI turn to history
+        this.turnCounter += 1;
+        const aiTurn: PhoneBoothTurn = {
+          turn: this.turnCounter,
+          speaker: 'agent',
+          text: aiReply,
+          emotion: localAnalysis.sentiment || 'Empathetic',
+          timestamp: Date.now()
+        };
+        this.turns.push(aiTurn);
+        this.notify({
+          turns: [...this.turns],
+          currentEmotion: localAnalysis.sentiment || 'Empathetic'
+        });
+
+        // Enqueue and speak via ElevenLabs HD Voice
+        this.speechQueue.push({ text: aiReply });
+        this.processSpeechQueue();
+
+        if (isGoodbye) {
+          this.pendingHangup = true;
+        }
       } catch (e) {
-        console.warn('Offline extraction error:', e);
+        console.warn('Offline conversational fallback error:', e);
       }
     }
   }
