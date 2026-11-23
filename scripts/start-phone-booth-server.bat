@@ -79,16 +79,20 @@ if %ERRORLEVEL% NEQ 0 (
 )
 echo       ✅ Ollama engine running on 0.0.0.0:11434.
 
-:: 7. Display Local Network IPv4 Address
+:: 7. Display Local Network IPv4 Address & Hostname
 echo.
 echo =====================================================================
-echo [5/5] 🌐 YOUR LAPTOP'S WI-FI / NETWORK IP ADDRESS:
+echo [5/5] 🌐 CONNECTION ADDRESSES (Use on Raspberry Pi):
+echo.
+echo    ⭐ Option 1 (Recommended - NEVER CHANGES on any Wi-Fi):
+echo       ws://%COMPUTERNAME%.local:8765
+echo.
+echo    👉 Option 2 (Current Direct IP):
 for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /c:"IPv4 Address"') do (
-    echo    👉 IP: %%a
+    echo       ws:%%a:8765
 )
 echo =====================================================================
-echo 💡 Enter this IP on your Raspberry Pi SafeSpeak Phone Booth:
-echo    WebSocket URL: ws://^<YOUR_LAPTOP_IP^>:8765
+echo 💡 Enter either URL above on your Raspberry Pi SafeSpeak Phone Booth!
 echo =====================================================================
 echo.
 

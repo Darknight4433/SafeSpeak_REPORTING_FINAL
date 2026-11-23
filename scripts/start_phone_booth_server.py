@@ -425,15 +425,18 @@ async def main_server():
 
     # 5. Launch WebSocket Server
     lan_ip = get_lan_ip()
+    host_name = socket.gethostname().lower()
     print("\n======================================================================")
     print(f"🚀 SafeSpeak Streaming Voice Engine LIVE!")
     print(f"   - Local Loopback: ws://127.0.0.1:{WS_PORT}")
     print(f"   - LAN Address:    ws://{lan_ip}:{WS_PORT}")
+    print(f"   - Hostname URL:   ws://{host_name}.local:{WS_PORT}")
     print(f"   - Active Model:   {active_model}")
-    print(f"   - Latency Target: <500ms (Sentence-Streaming Mode)")
+    print(f"   - Latency Target: <150ms (Sentence-Streaming Mode)")
     print("======================================================================")
     print(f"💡 On your SafeSpeak Kiosk / Raspberry Pi, connect to:")
-    print(f"   ws://{lan_ip}:{WS_PORT}")
+    print(f"   ⭐ ws://{host_name}.local:{WS_PORT}  (Works on ANY Wi-Fi without changing!)")
+    print(f"   👉 ws://{lan_ip}:{WS_PORT}")
     print("======================================================================\n")
 
     async with websockets.serve(lambda ws: handle_websocket_client(ws, active_model), "0.0.0.0", WS_PORT):
