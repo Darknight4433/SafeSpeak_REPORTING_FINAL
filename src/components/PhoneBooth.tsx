@@ -71,36 +71,42 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
   const turnsEndRef = useRef<HTMLDivElement | null>(null);
   const durationTimerRef = useRef<number | null>(null);
   const countdownTimerRef = useRef<number | null>(null);
-  const autoStartTimerRef = useRef<number | null>(null);
   const speechSilenceTimeoutRef = useRef<number | null>(null);
   const [idleCountdown, setIdleCountdown] = useState<number | null>(null);
-  const [autoStartCountdown, setAutoStartCountdown] = useState<number | null>(8);
 
-  // Auto-connect to SafeSpeak AI after 8 seconds on the welcome screen
+  // Persistent Speech & Echo Cancellation Refs
+  const recognitionRef = useRef<any>(null);
+  const isListeningRef = useRef<boolean>(false);
+  const lastDispatchedTextRef = useRef<{ text: string; time: number }>({ text: '', time: 0 });
+  const isAgentSpeakingRef = useRef<boolean>(false);
+  const lastAgentSpeechRef = useRef<string>('');
+  const extractedSlotsRef = useRef(extractedSlots);
+
   useEffect(() => {
+    isAgentSpeakingRef.current = isAgentSpeaking;
+  }, [isAgentSpeaking]);
+
+  useEffect(() => {
+    lastAgentSpeechRef.current = lastAgentSpeech;
+  }, [lastAgentSpeech]);
+
+  useEffect(() => {
+    extractedSlotsRef.current = extractedSlots;
+  }, [extractedSlots]);
+
+  // Immediate Zero-Touch Auto-Start on Station Launch and after call completion (1.5 seconds)
+  useEffect(() => {
+    let launchTimer: NodeJS.Timeout | null = null;
     if (callState === 'idle') {
-      setAutoStartCountdown(8);
-      autoStartTimerRef.current = window.setInterval(() => {
-        setAutoStartCountdown((prev) => {
-          if (prev !== null && prev <= 1) {
-            clearInterval(autoStartTimerRef.current as number);
-            handlePickUp();
-            return null;
-          }
-          return prev !== null ? prev - 1 : null;
-        });
-      }, 1000);
-    } else {
-      if (autoStartTimerRef.current) {
-        clearInterval(autoStartTimerRef.current);
-        autoStartTimerRef.current = null;
-      }
-      setAutoStartCountdown(null);
+      launchTimer = setTimeout(() => {
+        console.log("🚀 Hands-Free Kiosk: Starting phone session automatically...");
+        handlePickUp();
+      }, 1500);
     }
     return () => {
-      if (autoStartTimerRef.current) clearInterval(autoStartTimerRef.current);
+      if (launchTimer) clearTimeout(launchTimer);
     };
-  }, [callState, serverUrl]);
+  }, [callState]);
 
   // Background Connectivity Health-Check when idle
   useEffect(() => {
@@ -144,10 +150,10 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
     };
   }, [callState]);
 
-  // Auto-return to Idle on completion
+  // Auto-return to Idle on completion (5 seconds)
   useEffect(() => {
     if (callState === 'completed') {
-      setIdleCountdown(12);
+      setIdleCountdown(5);
       countdownTimerRef.current = window.setInterval(() => {
         setIdleCountdown((prev) => {
           if (prev !== null && prev <= 1) {
@@ -189,80 +195,129 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
       if (state.extractedSlots) setExtractedSlots(prev => ({ ...prev, ...state.extractedSlots }));
       if (state.turns) setTurns(state.turns);
       if (state.error) toast.error(state.error);
+      if (state.shouldAutoHangup) {
+        console.log("👋 Auto-hangup triggered hands-free by AI goodbye.");
+        handleHangUp();
+      }
     });
 
     return () => unsubscribe();
   }, []);
 
-
-  // Web Speech Recognition for Student Audio Input with live interim results and fast silence debounce
+  // Web Speech Recognition for Student Audio Input with continuous listening and fast silence debounce
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
     const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (SpeechRec) {
-      const rec = new SpeechRec();
-      rec.continuous = true;
-      rec.interimResults = true;
-      rec.lang = 'en-US';
+    if (!SpeechRec) {
+      console.warn('SpeechRecognition API not available in this browser');
+      return;
+    }
 
-      rec.onresult = (event: any) => {
-        let interim = '';
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) {
-            const spoken = event.results[i][0].transcript.trim();
-            if (spoken.length > 0) {
-              if (speechSilenceTimeoutRef.current) clearTimeout(speechSilenceTimeoutRef.current);
-              console.log('🎤 Student said:', spoken);
-              setLastStudentSpeech(spoken);
-              setInterimStudentText('');
-              phoneBoothManager.sendStudentSpeech(spoken);
+    const rec = new SpeechRec();
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.lang = 'en-US';
+
+    rec.onresult = (event: any) => {
+      let interim = '';
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        if (event.results[i].isFinal) {
+          const spoken = event.results[i][0].transcript.trim();
+          if (spoken.length > 0) {
+            // Echo suppression: Ignore if AI voice is currently speaking this text
+            if (isAgentSpeakingRef.current && lastAgentSpeechRef.current) {
+              const aiSpeech = lastAgentSpeechRef.current.toLowerCase();
+              const studentLower = spoken.toLowerCase();
+              if (aiSpeech.includes(studentLower) || studentLower.includes(aiSpeech.slice(0, 20))) {
+                console.log('🔇 Suppressed acoustic echo from AI voice');
+                return;
+              }
+            }
+
+            // Duplicate suppression: Prevent firing twice within 2.5s
+            const now = Date.now();
+            if (spoken === lastDispatchedTextRef.current.text && now - lastDispatchedTextRef.current.time < 2500) {
               return;
             }
-          } else {
-            interim += event.results[i][0].transcript;
+            lastDispatchedTextRef.current = { text: spoken, time: now };
+
+            if (speechSilenceTimeoutRef.current) clearTimeout(speechSilenceTimeoutRef.current);
+            console.log('🎤 Student said (final):', spoken);
+            setLastStudentSpeech(spoken);
+            setInterimStudentText('');
+            phoneBoothManager.sendStudentSpeech(spoken);
+            return;
+          }
+        } else {
+          interim += event.results[i][0].transcript;
+        }
+      }
+
+      if (interim.trim()) {
+        const spokenInterim = interim.trim();
+        setInterimStudentText(spokenInterim);
+
+        // Echo check for interim
+        if (isAgentSpeakingRef.current && lastAgentSpeechRef.current) {
+          const aiSpeech = lastAgentSpeechRef.current.toLowerCase();
+          const studentLower = spokenInterim.toLowerCase();
+          if (aiSpeech.includes(studentLower) || studentLower.includes(aiSpeech.slice(0, 20))) {
+            return;
           }
         }
-        if (interim.trim()) {
-          setInterimStudentText(interim.trim());
-          // Fast silence auto-dispatch (750ms) for snappy, natural turn-taking
-          if (speechSilenceTimeoutRef.current) clearTimeout(speechSilenceTimeoutRef.current);
-          speechSilenceTimeoutRef.current = window.setTimeout(() => {
-            const spoken = interim.trim();
-            if (spoken.length > 1) {
-              console.log('⚡ Fast silence auto-dispatch:', spoken);
-              setLastStudentSpeech(spoken);
-              setInterimStudentText('');
-              phoneBoothManager.sendStudentSpeech(spoken);
+
+        // Fast silence auto-dispatch (750ms) for snappy, natural turn-taking
+        if (speechSilenceTimeoutRef.current) clearTimeout(speechSilenceTimeoutRef.current);
+        speechSilenceTimeoutRef.current = window.setTimeout(() => {
+          const now = Date.now();
+          if (spokenInterim.length > 1) {
+            if (spokenInterim === lastDispatchedTextRef.current.text && now - lastDispatchedTextRef.current.time < 2500) {
+              return;
             }
-          }, 750);
-        }
-      };
+            lastDispatchedTextRef.current = { text: spokenInterim, time: now };
+            console.log('⚡ Fast silence auto-dispatch:', spokenInterim);
+            setLastStudentSpeech(spokenInterim);
+            setInterimStudentText('');
+            phoneBoothManager.sendStudentSpeech(spokenInterim);
+          }
+        }, 750);
+      }
+    };
 
-      rec.onerror = (e: any) => {
-        if (e.error !== 'no-speech') {
-          console.warn('Speech recognition error:', e.error);
-        }
-      };
+    rec.onerror = (e: any) => {
+      if (e.error !== 'no-speech') {
+        console.warn('Speech recognition error:', e.error);
+      }
+    };
 
-      rec.onend = () => {
-        if (callState === 'active') {
-          try { rec.start(); } catch {}
-        }
-      };
+    rec.onend = () => {
+      // Auto-restart continuously while the call is active
+      if (isListeningRef.current) {
+        setTimeout(() => {
+          if (isListeningRef.current && recognitionRef.current) {
+            try {
+              recognitionRef.current.start();
+            } catch (err) {
+              // Ignore already started
+            }
+          }
+        }, 120);
+      }
+    };
 
-      setRecognition(rec);
-    }
-  }, [callState]);
+    recognitionRef.current = rec;
+    setRecognition(rec);
+
+    return () => {
+      isListeningRef.current = false;
+      try { rec.abort(); } catch {}
+      recognitionRef.current = null;
+    };
+  }, []);
 
   // Start Call Handler
   const handlePickUp = async () => {
-    if (autoStartTimerRef.current) {
-      clearInterval(autoStartTimerRef.current);
-      autoStartTimerRef.current = null;
-    }
-    setAutoStartCountdown(null);
-
     setCallState('connecting');
     setSubmittedReportId(null);
     setTurns([]);
@@ -277,16 +332,18 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
 
     if (success) {
       setCallState('active');
+      isListeningRef.current = true;
       setIsListening(true);
-      if (recognition) {
-        try { recognition.start(); } catch {}
+      if (recognitionRef.current) {
+        try { recognitionRef.current.start(); } catch {}
       }
       toast.success('Connected. The AI is listening.', { duration: 3000 });
     } else {
       setCallState('active'); // Still enter active mode in local failure-safe fallback!
+      isListeningRef.current = true;
       setIsListening(true);
-      if (recognition) {
-        try { recognition.start(); } catch {}
+      if (recognitionRef.current) {
+        try { recognitionRef.current.start(); } catch {}
       }
       toast.warning('Running in Offline Mode. Your voice will be recorded for counselors.', { duration: 5000 });
     }
@@ -294,14 +351,15 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
 
   // Hang Up Call Handler
   const handleHangUp = async () => {
-    if (recognition) {
-      try { recognition.stop(); } catch {}
+    isListeningRef.current = false;
+    if (recognitionRef.current) {
+      try { recognitionRef.current.stop(); } catch {}
     }
     setIsListening(false);
     phoneBoothManager.stopSpeaking();
 
     toast.info('Submitting your encrypted report to school counselors...', { duration: 3000 });
-    const res = await phoneBoothManager.endCall(extractedSlots);
+    const res = await phoneBoothManager.endCall(extractedSlotsRef.current);
 
     setCallState('completed');
     if (res.reportId) {
@@ -353,10 +411,6 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
                 >
                   {isConnected ? <Wifi className="w-3 h-3 mr-1" /> : <WifiOff className="w-3 h-3 mr-1" />}
                   {isConnected ? "AI Assistant Ready" : "Offline Fallback Ready"}
-                </Badge>
-                <Badge variant="outline" className="text-xs bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30 hidden md:flex items-center gap-1">
-                  <Volume2 className="w-3 h-3 text-purple-500" />
-                  ElevenLabs Voice (Rotated)
                 </Badge>
               </div>
               <p className="text-xs text-muted-foreground hidden sm:block">
@@ -554,6 +608,12 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
                     <PhoneOff className="w-5 h-5" />
                     Hang Up & Submit Concern
                   </Button>
+                </div>
+
+                {/* Hands-Free Spoken Ending Guidance */}
+                <div className="pt-2 text-xs text-muted-foreground flex items-center justify-center gap-1.5 animate-pulse">
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-500" />
+                  <span><strong>100% Hands-Free:</strong> Say &ldquo;Goodbye&rdquo; or &ldquo;That&apos;s all&rdquo; to end the call anytime without touching the screen</span>
                 </div>
               </div>
 
@@ -809,16 +869,16 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
         </CardContent>
       </Card>
 
-      {/* Secondary Laptop WebSocket Settings Dialog */}
+      {/* SafeSpeak Server Connection Dialog */}
       <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Settings className="w-5 h-5 text-emerald-500" />
-              Secondary Laptop AI Server Address
+              SafeSpeak AI Server Connection
             </DialogTitle>
             <DialogDescription>
-              Configure the WebSocket address of the RTX 3050 laptop running Llama 3.2 3B.
+              Configure the network connection address for the SafeSpeak AI Assistant.
             </DialogDescription>
           </DialogHeader>
 

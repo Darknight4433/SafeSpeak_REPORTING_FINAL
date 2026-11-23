@@ -1585,12 +1585,12 @@ const Report = () => {
                             {ollamaStatus?.available ? (
                               <Badge variant="outline" className="bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border-emerald-300 flex items-center gap-1.5 text-xs py-0.5">
                                 <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                                Ollama ({ollamaStatus.selectedModel})
+                                SafeSpeak AI (Active)
                               </Badge>
                             ) : (
                               <Badge variant="outline" className="text-muted-foreground flex items-center gap-1.5 text-xs py-0.5">
                                 <span className="h-2 w-2 rounded-full bg-amber-500"></span>
-                                Ollama Offline (Using Rule AI)
+                                Offline Mode (Local Rule AI)
                               </Badge>
                             )}
 
@@ -1678,7 +1678,7 @@ const Report = () => {
                               <div className="flex items-center gap-2 flex-wrap">
                                 {liveAiAnalysis?.details?.source === 'ollama' && (
                                   <Badge variant="outline" className="text-xs bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border-purple-200">
-                                    Ollama LLM ({liveAiAnalysis.details.model})
+                                    SafeSpeak AI Analyzer
                                   </Badge>
                                 )}
                                 {liveAiAnalysis?.category && (

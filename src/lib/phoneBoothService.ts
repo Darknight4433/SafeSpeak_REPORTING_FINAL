@@ -30,6 +30,7 @@ export interface PhoneBoothState {
   isCallActive: boolean;
   isAgentSpeaking: boolean;
   currentAgentSentence?: string;
+  shouldAutoHangup?: boolean;
   isStudentListening: boolean;
   currentEmotion: string;
   categoryGuess: string;
@@ -92,6 +93,7 @@ export class PhoneBoothSessionManager {
   private currentAgentBubbleText: string = "";
   private currentAudio: HTMLAudioElement | null = null;
   private currentKeyIndex: number = 0;
+  private pendingHangup: boolean = false;
 
   public subscribe(fn: (state: Partial<PhoneBoothState>) => void) {
     this.listeners.push(fn);
@@ -102,6 +104,15 @@ export class PhoneBoothSessionManager {
 
   private notify(change: Partial<PhoneBoothState>) {
     this.listeners.forEach(fn => fn(change));
+  }
+
+  private onSpeechFinished() {
+    this.notify({ isAgentSpeaking: false, currentAgentSentence: '' });
+    if (this.pendingHangup) {
+      this.pendingHangup = false;
+      console.log('👋 [TTS Finished] Auto-hangup closing words completed. Triggering hangup.');
+      this.notify({ shouldAutoHangup: true });
+    }
   }
 
   /**
@@ -173,7 +184,7 @@ export class PhoneBoothSessionManager {
           if (this.speechQueue.length > 0) {
             this.processSpeechQueue();
           } else {
-            this.notify({ isAgentSpeaking: false, currentAgentSentence: '' });
+            this.onSpeechFinished();
           }
         };
 
@@ -198,7 +209,7 @@ export class PhoneBoothSessionManager {
   private playBrowserTTSFallback(textToSpeak: string) {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
       this.isProcessingQueue = false;
-      this.notify({ isAgentSpeaking: false, currentAgentSentence: '' });
+      this.onSpeechFinished();
       return;
     }
 
@@ -220,7 +231,7 @@ export class PhoneBoothSessionManager {
         if (this.speechQueue.length > 0) {
           this.processSpeechQueue();
         } else {
-          this.notify({ isAgentSpeaking: false, currentAgentSentence: '' });
+          this.onSpeechFinished();
         }
       };
 
@@ -229,14 +240,14 @@ export class PhoneBoothSessionManager {
         if (this.speechQueue.length > 0) {
           this.processSpeechQueue();
         } else {
-          this.notify({ isAgentSpeaking: false, currentAgentSentence: '' });
+          this.onSpeechFinished();
         }
       };
 
       window.speechSynthesis.speak(utterance);
     } catch (e) {
       this.isProcessingQueue = false;
-      this.notify({ isAgentSpeaking: false, currentAgentSentence: '' });
+      this.onSpeechFinished();
     }
   }
 
@@ -472,6 +483,11 @@ export class PhoneBoothSessionManager {
         categoryGuess: category,
         extractedSlots: slots
       });
+    }
+
+    // 3. Voice-Activated Goodbye / Auto-Hangup Signal
+    if (data.type === 'agent_goodbye_conclusion') {
+      this.notify({ shouldAutoHangup: true });
     }
   }
 

@@ -33,19 +33,27 @@ DEFAULT_MODEL = os.environ.get("SAFESPEAK_MODEL", "llama3.2:3b")
 TARGET_MODELS = [DEFAULT_MODEL, "llama3.2:3b", "qwen2.5:3b", "llama3.2:1b", "qwen2.5:1.5b"]
 WS_PORT = int(os.environ.get("SAFESPEAK_WS_PORT", 8765))
 
-# Safeguarding Conversational Persona Prompt
-CONVERSATIONAL_SYSTEM_PROMPT = """You are SafeSpeak AI, an automated assistant in a school safety phone booth.
-A student facing an issue or emotional distress has picked up the telephone.
+# Safeguarding Conversational Persona Prompt (Emotionally Intelligent, Spoken Voice Mode)
+CONVERSATIONAL_SYSTEM_PROMPT = """You are SafeSpeak AI, an emotionally intelligent, warm, gentle, and deeply caring companion in a school safety phone booth (similar to ChatGPT Voice mode).
+A student is speaking to you over the telephone handset.
 
-CRITICAL CHILD SAFEGUARDING INSTRUCTIONS:
-1. You are an AI assistant helping connect the student with caring school counselors.
-2. Speak in a gentle, warm, calm, reassuring tone suitable for young people.
-3. Keep spoken replies CONCISE (1 to 2 sentences maximum) so the student is never overwhelmed listening.
-4. Validate feelings honestly ("I hear you", "You did the right thing by speaking up", "Thank you for sharing that with me").
-5. NEVER make false promises: NEVER say "you are completely safe", "nobody will ever know", or "this is 100% secret".
-6. Ask EXACTLY ONE gentle question at a time to help understand their concern.
-7. NEVER force disclosure: If the student doesn't want to give names, locations, or details, respect that immediately.
-8. Focus on active listening, warmth, and de-escalation.
+CRITICAL CONVERSATIONAL & SAFEGUARDING GUIDELINES:
+1. Speak in a warm, conversational, soothing, human tone with genuine empathy.
+2. Validate emotions deeply:
+   - If they sound sad or hurt: "I am so sorry you are going through this. You don't have to carry this alone, and I am listening."
+   - If they sound anxious or afraid: "Take a gentle breath. You did the right thing by speaking up, and you are not in trouble."
+   - If they share an incident: "Thank you for trusting me with that. It takes real courage to tell someone."
+3. Keep spoken replies CONCISE (1 to 2 warm, natural spoken sentences at a time, 15 to 35 words max) so the conversation flows like a real phone call with no long monologues.
+4. Ask EXACTLY ONE gentle follow-up question at a time to help understand their concern.
+5. NEVER make false promises: NEVER say "you are 100% safe" or "nobody will ever know". You are helping share this with caring school counselors.
+6. Optional details: If the student doesn't want to give names or locations, respect that immediately.
+7. SPOKEN VOICE OUTPUT RULES:
+   - NEVER use asterisks, markdown formatting, emojis, bullet points, numbered lists, or stage directions.
+   - Write ONLY clean, plain English sentences suitable for a spoken voice synthesizer.
+8. NATURAL GOODBYES & CALL CONCLUSION:
+   If the student says "goodbye", "bye", "that's all", "I'm done", "thank you bye", "hang up", "have to go", or indicates they want to finish:
+   Respond with a warm, comforting closing statement ending in goodbye:
+   "Thank you for sharing this with me. Your report has been safely noted for our counselors, and you did wonderfully by speaking up today. Take care, and goodbye!"
 """
 
 EXTRACTION_SYSTEM_PROMPT = """You are the SafeSpeak Safeguarding Data Analyst.
@@ -373,6 +381,16 @@ async def handle_websocket_client(websocket, active_model):
 
                     conversation_history.append({"role": "assistant", "content": full_reply_text.strip()})
                     print(f"🤖 AI Spoke: \"{full_reply_text.strip()}\"")
+
+                    # Check for voice-activated goodbye / natural call conclusion
+                    is_departure = bool(re.search(r'\b(goodbye|good bye|bye|bye bye|that\'s all|thats all|i\'m done|im done|thank you bye|hang up|end call|that is all|nothing else|see you|got to go|have to go|thank you that is all|i have to leave|done now|finish)\b', student_text, re.IGNORECASE))
+                    ai_departure = bool(re.search(r'\b(goodbye|take care.*goodbye|farewell|bye now|safe day.*goodbye)\b', full_reply_text, re.IGNORECASE))
+                    if is_departure or ai_departure:
+                        print("👋 [VOICE HANG UP] Natural goodbye detected. Emitting auto-hangup packet.")
+                        await websocket.send(json.dumps({
+                            "type": "agent_goodbye_conclusion",
+                            "should_auto_hangup": True
+                        }))
 
                     # Asynchronously extract slots without blocking voice flow
                     async def async_extract():
