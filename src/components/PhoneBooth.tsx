@@ -29,6 +29,7 @@ import {
   Type
 } from 'lucide-react';
 import { phoneBoothManager, PhoneBoothTurn, ExtractedReportSlots, getSavedPhoneBoothWsUrl, savePhoneBoothWsUrl } from '@/lib/phoneBoothService';
+import { AudioVoiceDetector } from '@/lib/audioVoiceDetector';
 import { toast } from 'sonner';
 
 interface PhoneBoothProps {
@@ -48,6 +49,11 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
   const [extractedSlots, setExtractedSlots] = useState<ExtractedReportSlots>({});
   const [callDuration, setCallDuration] = useState(0);
   const [submittedReportId, setSubmittedReportId] = useState<string | null>(null);
+
+  // Live Microphone & VAD Voice State
+  const [micLevel, setMicLevel] = useState<number>(0);
+  const [isStudentTalking, setIsStudentTalking] = useState<boolean>(false);
+  const voiceDetectorRef = useRef<AudioVoiceDetector | null>(null);
 
   // Accessibility State
   const [textSize, setTextSize] = useState<'normal' | 'large' | 'xlarge'>('normal');
@@ -185,6 +191,10 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
       if (state.inquiryState) setInquiryState(state.inquiryState);
       if (state.extractedSlots) setExtractedSlots(prev => ({ ...prev, ...state.extractedSlots }));
       if (state.turns) setTurns(state.turns);
+      if (state.lastTranscribedStudentSpeech) {
+        setLastStudentSpeech(state.lastTranscribedStudentSpeech);
+        setInterimStudentText('');
+      }
       if (state.error) toast.error(state.error);
       if (state.shouldAutoHangup) {
         console.log("👋 Auto-hangup triggered hands-free by AI goodbye.");
@@ -193,6 +203,51 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
     });
 
     return () => unsubscribe();
+  }, []);
+
+  // 1. USB Microphone VAD Audio Streamer & Live Level Meter
+  useEffect(() => {
+    const detector = new AudioVoiceDetector({
+      sampleRate: 16000,
+      vadThreshold: 0.035,
+      silenceDebounceMs: 1000,
+      minSpeechDurationMs: 400,
+      onVolumeChange: (volumePercent, isSpeaking) => {
+        setMicLevel(volumePercent);
+        setIsStudentTalking(isSpeaking);
+
+        // Auto-Wake / Auto-Pickup on any voice when booth is in idle standby
+        if (callStateRef.current === 'idle' && isSpeaking && volumePercent > 12) {
+          console.log("🌟 [VAD AUTO WAKE] Student voice detected in booth -> Auto-starting call...");
+          handlePickUp();
+        }
+      },
+      onSpeechStart: () => {
+        // Instant Barge-In: if AI is speaking during active call, mute it immediately!
+        if (callStateRef.current === 'active' && isAgentSpeakingRef.current) {
+          console.log("🛑 [VAD INSTANT BARGE-IN] Voice detected -> Pausing AI speech immediately");
+          phoneBoothManager.stopSpeaking();
+          setIsAgentSpeaking(false);
+        }
+      },
+      onSpeechEnd: (wavBase64) => {
+        if (callStateRef.current === 'active') {
+          console.log("🎤 [VAD Audio Segment Completed] Sending 16kHz WAV to AI Server Scribe STT...");
+          phoneBoothManager.sendStudentAudio(wavBase64);
+        }
+      },
+      onError: (err) => {
+        console.warn("AudioVoiceDetector microphone access issue:", err);
+      }
+    });
+
+    voiceDetectorRef.current = detector;
+    detector.start().catch((e) => console.warn("Detector start failed:", e));
+
+    return () => {
+      detector.stop();
+      voiceDetectorRef.current = null;
+    };
   }, []);
 
   // Web Speech Recognition for Student Audio Input with continuous listening and fast silence debounce
@@ -289,23 +344,30 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
       }
     };
 
+    let consecutiveWebSpeechErrors = 0;
     rec.onerror = (e: any) => {
       if (e.error !== 'no-speech') {
         console.warn('Speech recognition error:', e.error);
       }
+      if (e.error === 'network' || e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+        consecutiveWebSpeechErrors += 1;
+      }
     };
 
     rec.onend = () => {
-      // Auto-restart continuously in both idle (for wake word) and active states
+      // If WebSpeech repeatedly fails (e.g. Raspberry Pi Linux offline without Google keys),
+      // stop spamming network restarts. The USB Audio VAD pipeline handles all speech cleanly!
+      if (consecutiveWebSpeechErrors >= 3) {
+        console.info('ℹ️ WebSpeech offline on this device. Direct USB Audio VAD stream active.');
+        return;
+      }
       setTimeout(() => {
-        if (recognitionRef.current) {
+        if (recognitionRef.current && consecutiveWebSpeechErrors < 3) {
           try {
             recognitionRef.current.start();
-          } catch (err) {
-            // Ignore already started
-          }
+          } catch (err) {}
         }
-      }, 100);
+      }, 1500);
     };
 
     recognitionRef.current = rec;
@@ -499,6 +561,34 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
                 <span>Say <strong>&ldquo;Hey SafeSpeak&rdquo;</strong> or <strong>&ldquo;Hello&rdquo;</strong> to wake up, or tap below</span>
               </div>
 
+              {/* Real-time Microphone Input Level Indicator */}
+              <div className="flex flex-col items-center gap-1.5 w-full max-w-sm pt-2">
+                <div className="flex items-center justify-between w-full text-xs text-muted-foreground px-1">
+                  <span className="flex items-center gap-1.5 font-medium">
+                    <Mic className={`w-4 h-4 ${micLevel > 10 ? 'text-emerald-500 animate-pulse' : 'text-muted-foreground'}`} />
+                    Handset Mic: {micLevel > 10 ? 'Hearing Voice' : 'Standby'}
+                  </span>
+                  <span className="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                    {micLevel}%
+                  </span>
+                </div>
+                <div className="w-full bg-muted/60 h-2.5 rounded-full overflow-hidden border border-border/60">
+                  <div
+                    className={`h-full transition-all duration-100 rounded-full ${
+                      micLevel > 12
+                        ? 'bg-gradient-to-r from-emerald-500 via-green-400 to-teal-400 shadow-sm'
+                        : 'bg-muted-foreground/20'
+                    }`}
+                    style={{ width: `${Math.max(3, Math.min(100, micLevel))}%` }}
+                  />
+                </div>
+                <p className="text-[11px] text-muted-foreground text-center">
+                  {micLevel > 10
+                    ? '🎙️ Voice detected — lifting receiver and starting call...'
+                    : 'Speak naturally to wake up, or tap the button below.'}
+                </p>
+              </div>
+
               {/* Big Physical/Touch Button */}
               <div className="pt-2">
                 <Button
@@ -636,6 +726,18 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
                     <Badge variant={!isAgentSpeaking ? "default" : "outline"} className={`text-[10px] ${!isAgentSpeaking ? 'bg-emerald-600 animate-pulse text-white' : ''}`}>
                       {interimStudentText ? 'Hearing You...' : !isAgentSpeaking ? 'Mic Active' : 'Waiting'}
                     </Badge>
+                  </div>
+                  {/* Live Handset Mic VU Level */}
+                  <div className="flex items-center gap-2 mb-2 px-0.5">
+                    <div className="flex-1 bg-muted/60 h-2 rounded-full overflow-hidden border border-border/40">
+                      <div
+                        className="h-full bg-emerald-500 transition-all duration-75 rounded-full"
+                        style={{ width: `${Math.max(2, Math.min(100, micLevel))}%` }}
+                      />
+                    </div>
+                    <span className="font-mono text-[10px] text-muted-foreground font-semibold">
+                      {micLevel}%
+                    </span>
                   </div>
                   <div className="min-h-[58px] flex items-center">
                     {interimStudentText ? (

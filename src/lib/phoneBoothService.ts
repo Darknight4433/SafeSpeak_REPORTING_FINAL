@@ -30,6 +30,7 @@ export interface PhoneBoothState {
   isCallActive: boolean;
   isAgentSpeaking: boolean;
   currentAgentSentence?: string;
+  lastTranscribedStudentSpeech?: string;
   shouldAutoHangup?: boolean;
   isStudentListening: boolean;
   currentEmotion: string;
@@ -520,6 +521,46 @@ export class PhoneBoothSessionManager {
    * Phase 3 Streaming Message Handler
    */
   private async handleIncomingMessage(data: any) {
+    // 0. Transcribed student speech from server-side ElevenLabs Scribe STT
+    if (data.type === 'student_speech_transcribed') {
+      const studentText = (data.text || '').trim();
+      if (studentText) {
+        console.log('🎙️ [Server STT Transcribed]:', studentText);
+        // Avoid duplicate student turn if already recorded recently
+        const lastTurn = this.turns.length > 0 ? this.turns[this.turns.length - 1] : null;
+        if (!lastTurn || lastTurn.speaker !== 'student' || lastTurn.text.toLowerCase() !== studentText.toLowerCase()) {
+          this.turnCounter += 1;
+          const turnObj: PhoneBoothTurn = {
+            turn: this.turnCounter,
+            speaker: 'student',
+            text: studentText,
+            timestamp: Date.now()
+          };
+          this.turns.push(turnObj);
+        }
+
+        if (this.currentConversationKey) {
+          try {
+            const turnRef = push(ref(database, `conversations/${this.currentConversationKey}/transcript`));
+            await set(turnRef, {
+              turn: this.turnCounter,
+              speaker: 'student',
+              text: studentText,
+              timestamp: Date.now()
+            });
+          } catch (e) {
+            console.warn('Firebase student STT turn sync error:', e);
+          }
+        }
+
+        this.notify({
+          turns: [...this.turns],
+          lastTranscribedStudentSpeech: studentText
+        });
+      }
+      return;
+    }
+
     // 1. Streaming Sentence Token Delivery (<500ms time-to-speech)
     if (data.type === 'agent_stream_sentence') {
       const sentence = data.sentence || '';
@@ -597,6 +638,31 @@ export class PhoneBoothSessionManager {
     // 3. Voice-Activated Goodbye / Auto-Hangup Signal
     if (data.type === 'agent_goodbye_conclusion') {
       this.notify({ shouldAutoHangup: true });
+    }
+  }
+
+  /**
+   * Transmit raw audio base64 (16kHz 16-bit Mono WAV from VAD) to secondary laptop for ElevenLabs Scribe STT
+   */
+  public async sendStudentAudio(audioBase64: string) {
+    if (!audioBase64) return;
+
+    // Barge-In: if AI is currently speaking, cut off speech immediately so student is heard!
+    if (this.currentAudio || this.speechQueue.length > 0 || (typeof window !== 'undefined' && window.speechSynthesis.speaking)) {
+      this.stopSpeaking();
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: 'barge_in' }));
+      }
+    }
+
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      console.log('📡 [Sending Student Audio] Transmitting WAV buffer to AI server for Scribe STT...');
+      this.ws.send(JSON.stringify({
+        type: 'student_audio',
+        audio_base64: audioBase64
+      }));
+    } else {
+      console.warn('⚠️ WebSocket not open for student_audio transmission.');
     }
   }
 
@@ -742,9 +808,85 @@ export class PhoneBoothSessionManager {
       const categoryVal = currentSlots.category || (isTeacher ? 'teacher_involved' : 'safety');
       const intensityVal = isL3 || currentSlots.immediate_danger ? 'extreme' : currentSlots.severity_level === 'L2' ? 'high' : 'medium';
 
+      const rawIdentity = (currentSlots as any).identity || {};
+      const rawIncident = (currentSlots as any).incident || {};
+      const rawPrefs = (currentSlots as any).child_preferences || {};
+      const rawSupport = (currentSlots as any).support_needs || {};
+      const rawSafety = (currentSlots as any).safety_flags || {};
+      const rawQuality = (currentSlots as any).report_quality || {};
+      const rawEvidence = (currentSlots as any).evidence_layer || {};
+
+      const childName = rawIdentity.name || currentSlots.implicated_person || null;
+      const isAnonPref = rawIdentity.anonymous_preference === 'anonymous' || rawPrefs.wants_anonymity === true;
+
       const reportPayload = {
+        // Structured Report Schema
+        report_id: reportIdStr,
         reportId: reportIdStr,
         reportNumber: this.currentReportNumber,
+        report_status: 'pending_review',
+        created_at: serverTimestamp(),
+        timestamp: serverTimestamp(),
+        durationSeconds: durationSeconds,
+        source: 'phone_booth_voice_agent',
+        school: SCHOOL_CONFIG.name,
+        conversationId: this.currentConversationKey,
+
+        // 1. Identity & Anonymity
+        identity: {
+          name: childName,
+          name_provided: Boolean(rawIdentity.name_provided || childName),
+          anonymous_preference: rawIdentity.anonymous_preference || (isAnonPref ? 'anonymous' : 'undecided'),
+          identity_confirmation: rawIdentity.identity_confirmation || 'not_confirmed'
+        },
+
+        // 2. Incident Details
+        incident: {
+          category: rawIncident.category || categoryVal,
+          description: rawIncident.description || currentSlots.summary || `Phone booth voice report (${durationSeconds}s call)`,
+          frequency: rawIncident.frequency || (currentSlots.is_ongoing ? 'repeated' : 'unknown'),
+          location: rawIncident.location || currentSlots.location || null,
+          time_context: rawIncident.time_context || currentSlots.incident_timeframe || null
+        },
+
+        // 3. Child Preferences
+        child_preferences: {
+          wants_anonymity: rawPrefs.wants_anonymity !== undefined ? rawPrefs.wants_anonymity : (isAnonPref ? true : null),
+          wants_to_continue: rawPrefs.wants_to_continue !== undefined ? rawPrefs.wants_to_continue : true,
+          preferred_support_person: rawPrefs.preferred_support_person || null
+        },
+
+        // 4. Support Needs
+        support_needs: {
+          requested_help: rawSupport.requested_help || null,
+          concerns: rawSupport.concerns || []
+        },
+
+        // 5. Safety Flags
+        safety_flags: {
+          urgent_review: isL3 || rawSafety.urgent_review || false,
+          human_review_required: true
+        },
+
+        // 6. Report Quality & Evidence Layer
+        report_quality: {
+          missing_fields: rawQuality.missing_fields || [],
+          ai_confidence: rawQuality.ai_confidence || 'direct_statements'
+        },
+        evidence_layer: {
+          name_evidence: rawEvidence.name_evidence || (childName ? 'direct' : 'unknown'),
+          frequency_evidence: rawEvidence.frequency_evidence || 'unknown',
+          location_evidence: rawEvidence.location_evidence || (currentSlots.location ? 'direct' : 'unknown')
+        },
+
+        // 7. Human Review Tracking
+        review: {
+          reviewer_id: null,
+          reviewed_at: null,
+          outcome: null
+        },
+
+        // Legacy compatibility fields
         category: categoryVal,
         intensity: intensityVal,
         severityLevel: currentSlots.severity_level || (isL3 ? 'L3' : 'L1'),
@@ -753,14 +895,9 @@ export class PhoneBoothSessionManager {
         incidentTimeframe: currentSlots.incident_timeframe || null,
         witnessesPresent: currentSlots.witnesses_present || null,
         physicalHarmIndicated: currentSlots.physical_harm_indicated || false,
-        school: SCHOOL_CONFIG.name,
-        isAnonymous: true,
+        isAnonymous: isAnonPref,
         implicatedName: currentSlots.implicated_person || null,
         personType: isTeacher ? 'teacher' : 'student',
-        source: 'phone_booth_voice_agent',
-        conversationId: this.currentConversationKey,
-        timestamp: serverTimestamp(),
-        durationSeconds: durationSeconds,
         extractedSlots: currentSlots
       };
 

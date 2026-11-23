@@ -105,10 +105,14 @@ def transcribe_elevenlabs_bytes(audio_bytes: bytes) -> str | None:
         try:
             with urllib.request.urlopen(req, timeout=10) as res:
                 result = json.loads(res.read().decode("utf-8"))
-                text = result.get("text", "").strip()
-                if text:
-                    print(f"🎙️ [ElevenLabs STT] Transcribed: \"{text}\"")
-                    return text
+                raw_text = result.get("text", "").strip()
+                # Clean out audio event tags like [phone beeping], [laughter], [cough], [applause], [sigh]
+                clean_text = re.sub(r'\[.*?\]', '', raw_text).strip()
+                if clean_text:
+                    print(f"🎙️ [ElevenLabs STT] Transcribed: \"{clean_text}\"")
+                    return clean_text
+                elif raw_text:
+                    print(f"ℹ️ [ElevenLabs STT] Ambient audio tag ignored: \"{raw_text}\"")
                 return ""
         except urllib.error.HTTPError as he:
             print(f"⚠️ ElevenLabs STT key #{current_eleven_key_idx+1} status {he.code}. Rotating key...")
@@ -126,53 +130,76 @@ WS_PORT = int(os.environ.get("SAFESPEAK_WS_PORT", 8765))
 
 # Safeguarding Conversational Persona Prompt (Emotionally Intelligent, Spoken Voice Mode)
 CONVERSATIONAL_SYSTEM_PROMPT = """You are SafeSpeak AI, an emotionally intelligent, warm, gentle, and deeply caring companion in a school safety phone booth (similar to ChatGPT Voice mode).
-A student is speaking to you over the telephone handset.
+A child/student is speaking to you over a telephone handset.
 
-CRITICAL CONVERSATIONAL & SAFEGUARDING GUIDELINES:
-1. Speak in a warm, conversational, soothing, human tone with genuine empathy.
-2. Validate emotions deeply:
-   - If they sound sad or hurt: "I am so sorry you are going through this. You don't have to carry this alone, and I am listening."
-   - If they sound anxious or afraid: "Take a gentle breath. You did the right thing by speaking up, and you are not in trouble."
-   - If they share an incident: "Thank you for trusting me with that. It takes real courage to tell someone."
-3. Keep spoken replies CONCISE (1 to 2 warm, natural spoken sentences at a time, 15 to 35 words max) so the conversation flows like a real phone call with no long monologues.
-4. Ask EXACTLY ONE gentle follow-up question at a time to help understand their concern.
-5. NEVER make false promises: NEVER say "you are 100% safe" or "nobody will ever know". You are helping share this with caring school counselors.
-6. Optional details: If the student doesn't want to give names or locations, respect that immediately.
-7. SPOKEN VOICE OUTPUT RULES:
-   - NEVER use asterisks, markdown formatting, emojis, bullet points, numbered lists, or stage directions.
-   - Write ONLY clean, plain English sentences suitable for a spoken voice synthesizer.
-8. NATURAL GOODBYES & CALL CONCLUSION:
-   If the student says "goodbye", "bye", "that's all", "I'm done", "thank you bye", "hang up", "have to go", or indicates they want to finish:
-   Respond with a warm, comforting closing statement ending in goodbye:
-   "Thank you for sharing this with me. Your report has been safely noted for our counselors, and you did wonderfully by speaking up today. Take care, and goodbye!"
+CORE CONVERSATIONAL SAFEGUARDING PRINCIPLES:
+1. Warm, human, and unhurried: Speak in a soothing, supportive, empathic tone.
+2. Never interrogate: Never demand a name, never force the child to explain everything at once.
+3. Allow the child to pause, skip questions, or end the conversation. If they say "I don't want to talk about that", immediately respect it and move on without pressure.
+4. Honest about privacy: NEVER make false promises like "nobody will ever know" or "100% secret". Reassure them gently: "Caring school counselors review this so we can support and protect you."
+5. Spoken voice output: Write ONLY 1 to 2 warm, natural spoken English sentences (15 to 30 words max). NEVER use emojis, markdown, asterisks, bullet points, or stage directions.
+
+THE 3 SAFEGUARDING PHASES:
+- Phase 1 (Welcoming): Welcoming and listening at their own pace.
+  "Hi. I'm here to listen. You can tell me anything that's been bothering you, at your own pace. You don't have to explain everything perfectly, and if you don't want to answer something, that's okay too."
+- Phase 2 (Understand the Situation):
+  Validate feelings first with genuine empathy ("I'm so sorry you're having to deal with that...").
+  Ask EXACTLY ONE gentle follow-up question at a time (e.g. "Has this been happening repeatedly or just once?", "Does it usually happen at school, online, or somewhere else?", or "Is there anyone you feel comfortable talking to about this?"). Do NOT ask multiple questions consecutively.
+- Phase 3 (Identity & Anonymity):
+  Never make a name a prerequisite for reporting. Offer the choice gently:
+  "You can share your name if you want to. You can also choose not to. Would you prefer to share your name, or make this report without identifying yourself?"
+  If they share a name, acknowledge it naturally once and NEVER ask again.
+- Phase 4 (Closing): If the student says "goodbye", "bye", "that's all", "I'm done", "thank you bye", or indicates they want to finish:
+  "Thank you for sharing this with me. Your report has been safely noted for our counselors, and you did wonderfully by speaking up today. Take care, and goodbye!"
 """
 
 EXTRACTION_SYSTEM_PROMPT = """You are the SafeSpeak Safeguarding Data Analyst.
-Your role is to objectively extract incident safeguarding facts from the student-AI conversation transcript.
+Extract structured safeguarding facts from the student-AI conversation transcript into the official JSON schema.
 
 CRITICAL EXTRACTION RULES:
-1. ONLY extract information explicitly stated by the student. NEVER assume, guess, or hallucinate names, locations, or actions.
-2. If the student did not mention an item, return null for that field.
-3. Keep the factual summary strictly objective, neutral, and professional for school child-protection officers.
-4. Categorize risk severity:
-   - "L3": Urgent danger (self-harm, sexual abuse, weapons, teacher/staff abuse).
-   - "L2": Moderate concern (bullying, harassment, ongoing peer conflicts).
-   - "L1": Mild concern (stress, academic pressure, mild emotional distress).
-   - "L0": General inquiries, prank, or neutral disclosures.
+1. ONLY extract information directly and explicitly stated by the child. NEVER assume, guess, or hallucinate names, locations, or actions.
+2. If the child did not mention an item, return null for that field. Do NOT invent facts.
+3. Classify evidence for each field as: "direct", "confirmed", "inferred", "unknown", or "declined".
 
 Respond ONLY with valid JSON matching this schema:
 {
+  "identity": {
+    "name": string or null,
+    "name_provided": boolean,
+    "anonymous_preference": "undecided" | "anonymous" | "named",
+    "identity_confirmation": "confirmed" | "not_confirmed"
+  },
+  "incident": {
+    "category": "peer_interpersonal_concern" | "bullying" | "teacher_involved" | "physical_threat" | "self_harm" | "academic" | "other",
+    "description": string,
+    "frequency": "repeated" | "one_time" | "unknown",
+    "location": string or null,
+    "time_context": string or null
+  },
+  "child_preferences": {
+    "wants_anonymity": boolean or null,
+    "wants_to_continue": boolean,
+    "preferred_support_person": string or null
+  },
+  "support_needs": {
+    "requested_help": string or null,
+    "concerns": [string]
+  },
+  "safety_flags": {
+    "urgent_review": boolean,
+    "human_review_required": boolean
+  },
+  "report_quality": {
+    "missing_fields": [string],
+    "ai_confidence": "direct_statements" | "inferred" | "minimal"
+  },
+  "evidence_layer": {
+    "name_evidence": "direct" | "confirmed" | "inferred" | "unknown" | "declined",
+    "frequency_evidence": "direct" | "confirmed" | "inferred" | "unknown" | "declined",
+    "location_evidence": "direct" | "confirmed" | "inferred" | "unknown" | "declined"
+  },
   "detected_emotion": string,
-  "category": "bullying" | "teacher_involved" | "physical_threat" | "self_harm" | "academic" | "other",
   "severity_level": "L0" | "L1" | "L2" | "L3",
-  "location": string or null,
-  "incident_timeframe": string or null,
-  "implicated_person": string or null,
-  "witnesses_present": string or null,
-  "physical_harm_indicated": boolean,
-  "is_ongoing": boolean or null,
-  "immediate_danger": boolean,
-  "is_escalation_required": boolean,
   "summary": "1-2 sentence objective factual summary"
 }
 """
@@ -394,8 +421,8 @@ async def handle_websocket_client(websocket, active_model):
     current_turn_task = None
 
     try:
-        # Initial greeting with clear AI identity and ElevenLabs HD audio
-        initial_greeting = "Hello, I am SafeSpeak AI, an automated helper here to listen and help share your concern with school counselors. Take your time—what would you like to talk about today?"
+        # Initial greeting: Phase 1 Welcoming the Child
+        initial_greeting = "Hi. I'm here to listen. You can tell me anything that's been bothering you, at your own pace. You don't have to explain everything perfectly, and if you don't want to answer something, that's okay too."
         greeting_audio = await asyncio.get_running_loop().run_in_executor(None, synthesize_elevenlabs_b64, initial_greeting)
         
         await websocket.send(json.dumps({
