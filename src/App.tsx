@@ -19,15 +19,15 @@ const App = () => (
       <Sonner />
       <HashRouter>
         <Routes>
-          {/* Default station entry point is the Phone Booth Kiosk */}
-          <Route path="/" element={<Report />} />
-          <Route path="/booth" element={<Report />} />
-          <Route path="/report" element={<Report />} />
+          {/* Main Website Home Landing Page as Default Route */}
+          <Route path="/" element={<Index />} />
           <Route path="/home" element={<Index />} />
+          <Route path="/report" element={<Report />} />
+          <Route path="/booth" element={<Report />} />
           <Route path="/about" element={<About />} />
           <Route path="/privacy" element={<Privacy />} />
           <Route path="/admin" element={<Admin />} />
-          {/* Fallback to Phone Booth on any unknown route */}
+          {/* Fallback to Home on unknown routes */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </HashRouter>

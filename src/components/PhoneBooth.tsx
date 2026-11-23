@@ -147,33 +147,11 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
     };
   }, [callState]);
 
-  // Auto-return to Idle on completion (5 seconds)
+  // Keep Completed state steady without auto-redirect countdown
   useEffect(() => {
-    if (callState === 'completed') {
-      setIdleCountdown(5);
-      countdownTimerRef.current = window.setInterval(() => {
-        setIdleCountdown((prev) => {
-          if (prev !== null && prev <= 1) {
-            clearInterval(countdownTimerRef.current as number);
-            setCallState('idle');
-            setSubmittedReportId(null);
-            setTurns([]);
-            setExtractedSlots({});
-            return null;
-          }
-          return prev !== null ? prev - 1 : null;
-        });
-      }, 1000);
-    } else {
-      if (countdownTimerRef.current) {
-        clearInterval(countdownTimerRef.current);
-        countdownTimerRef.current = null;
-      }
+    if (callState !== 'completed') {
       setIdleCountdown(null);
     }
-    return () => {
-      if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
-    };
   }, [callState]);
 
   // Subscribe to Phone Booth Session updates
@@ -937,12 +915,6 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
                 <div className="p-3 bg-background/80 rounded-xl border inline-block font-mono text-sm">
                   Reference Code: <strong className="text-foreground text-base">{submittedReportId}</strong>
                 </div>
-              )}
-
-              {idleCountdown !== null && (
-                <p className="text-xs text-muted-foreground">
-                  Returning to welcome screen in <strong>{idleCountdown}</strong> seconds...
-                </p>
               )}
 
               <div className="pt-2">
