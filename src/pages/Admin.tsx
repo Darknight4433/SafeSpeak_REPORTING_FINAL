@@ -112,6 +112,8 @@ export interface Report {
     urgent_review?: boolean;
     human_review_required?: boolean;
   };
+  structured_report?: any;
+  ai_structured_report?: any;
 }
 
 const categoryIcons: Record<string, string> = {

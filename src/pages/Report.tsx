@@ -296,6 +296,56 @@ const Report = () => {
         isEscalated: isTeacher || values.intensity === 'extreme',
       };
 
+      // Mandatory AI Structured Report attached to every submission
+      const isExtreme = values.intensity === 'extreme';
+      const isHigh = values.intensity === 'high' || isTeacher;
+      const severity = isExtreme ? 'L3' : isHigh ? 'L2' : 'L1';
+      const categoryVal = isTeacher ? 'teacher_involved' : (values.category || 'other');
+      const implicatedVal = values.implicatedName?.trim() || values.bullyName?.trim() || null;
+      const reporterVal = values.isAnonymous ? 'Anonymous' : (values.name?.trim() || 'Anonymous');
+
+      const manualStructuredReport = {
+        report_id: reportId,
+        generated_at: Date.now(),
+        source: 'manual_web',
+        executive_summary: values.description ? (values.description.length > 200 ? values.description.slice(0, 200) + '...' : values.description) : `Manual safeguarding report (${categoryVal})`,
+        incident_classification: {
+          category: categoryVal,
+          severity_level: severity,
+          risk_level: isTeacher || isExtreme ? 'Critical' : isHigh ? 'High' : 'Normal',
+          intensity: values.intensity || 'medium',
+          escalation_pathway: isTeacher || isExtreme ? 'higher_authority' : 'normal',
+          escalation_reason: isTeacher ? 'Report implicates school teacher or staff member' : isExtreme ? 'Reporter indicated critical urgency' : 'Standard pastoral intake'
+        },
+        extracted_entities: {
+          location: values.location || SCHOOL_CONFIG.name,
+          classroom: values.classroom?.trim() || null,
+          incident_timeframe: 'Recently Reported',
+          implicated_person: implicatedVal,
+          reporter_identity: reporterVal,
+          age: values.age || null
+        },
+        safety_and_danger_assessment: {
+          immediate_danger: isExtreme,
+          physical_harm_indicated: isExtreme || values.intensity === 'high',
+          is_ongoing_or_scheduled: values.intensity === 'high' || isExtreme,
+          urgent_action_required: isTeacher || isExtreme
+        },
+        recommended_action_plan: isTeacher ? [
+          'Immediate confidential notification of Designated Safeguarding Lead (DSL)',
+          'Protect student identity and prevent staff retaliation'
+        ] : isExtreme ? [
+          'Immediate administrative safety intervention',
+          'Coordinate with campus security and counselor lead'
+        ] : [
+          'Assign counselor for intake assessment',
+          'Monitor student well-being during school hours'
+        ]
+      };
+
+      reportPayload.structured_report = manualStructuredReport;
+      reportPayload.ai_structured_report = manualStructuredReport;
+
       if (isTeacher) {
         reportPayload.escalationMeta = {
           escalated_by: 'teacher_staff_involvement',

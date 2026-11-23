@@ -1006,6 +1006,105 @@ export class PhoneBoothSessionManager {
         isAnonymous: isAnonPref,
         implicatedName: implicatedVal,
         personType: isTeacher ? 'teacher' : 'student',
+        structured_report: {
+          report_id: reportIdStr,
+          generated_at: Date.now(),
+          source: 'phone_booth_voice_agent',
+          executive_summary: summaryVal,
+          incident_classification: {
+            category: categoryVal,
+            severity_level: currentSlots.severity_level || (isL3 ? 'L3' : 'L1'),
+            risk_level: requiresHigherAuthority ? 'Critical' : (currentSlots.severity_level === 'L2' ? 'High' : 'Normal'),
+            intensity: intensityVal,
+            escalation_pathway: requiresHigherAuthority ? 'higher_authority' : 'normal',
+            escalation_reason: rawEscalation.reason || (isTeacher ? 'Teacher or staff member implicated' : isL3 ? 'Critical severity L3 safety risk' : 'Standard counselor review')
+          },
+          extracted_entities: {
+            location: locationVal,
+            incident_timeframe: timeframeVal,
+            implicated_person: implicatedVal,
+            witnesses_present: witnessesVal,
+            substance_involved: currentSlots.substance_involved || null,
+            target_population: currentSlots.target_population || null,
+            reporter_identity: isAnonPref ? 'Anonymous' : (childName || 'Anonymous')
+          },
+          safety_and_danger_assessment: {
+            immediate_danger: Boolean(currentSlots.immediate_danger || rawSafety.immediate_danger),
+            physical_harm_indicated: Boolean(currentSlots.physical_harm_indicated || rawSafety.physical_harm_indicated),
+            is_ongoing_or_scheduled: Boolean(currentSlots.is_ongoing || rawIncident.frequency === 'repeated'),
+            urgent_action_required: Boolean(isL3 || currentSlots.immediate_danger || rawSafety.urgent_review)
+          },
+          recommended_action_plan: currentSlots.safeguarding_recommendations || (isTeacher ? [
+            'Immediate confidential notification of Designated Safeguarding Lead (DSL)',
+            'Protect student from potential staff retaliation'
+          ] : isL3 ? [
+            'Immediate in-person administrative dispatch and safety check',
+            'Notify campus security and local authorities'
+          ] : [
+            'Schedule supportive counselor check-in with student',
+            'Document peer conflict in pastoral care system'
+          ]),
+          conversation_log: this.turns.map(t => ({
+            turn: t.turn,
+            speaker: t.speaker,
+            text: t.text,
+            emotion: t.emotion || 'Listening',
+            timestamp: t.timestamp
+          })),
+          voice_analytics: {
+            duration_seconds: durationSeconds,
+            total_turns: this.turns.length,
+            student_turns: this.turns.filter(t => t.speaker === 'student').length,
+            agent_turns: this.turns.filter(t => t.speaker === 'agent').length,
+            concluding_emotion: this.turns.slice().reverse().find(t => t.emotion)?.emotion || 'Empathetic'
+          }
+        },
+        ai_structured_report: {
+          report_id: reportIdStr,
+          generated_at: Date.now(),
+          source: 'phone_booth_voice_agent',
+          executive_summary: summaryVal,
+          incident_classification: {
+            category: categoryVal,
+            severity_level: currentSlots.severity_level || (isL3 ? 'L3' : 'L1'),
+            risk_level: requiresHigherAuthority ? 'Critical' : (currentSlots.severity_level === 'L2' ? 'High' : 'Normal'),
+            intensity: intensityVal,
+            escalation_pathway: requiresHigherAuthority ? 'higher_authority' : 'normal',
+            escalation_reason: rawEscalation.reason || (isTeacher ? 'Teacher or staff member implicated' : isL3 ? 'Critical severity L3 safety risk' : 'Standard counselor review')
+          },
+          extracted_entities: {
+            location: locationVal,
+            incident_timeframe: timeframeVal,
+            implicated_person: implicatedVal,
+            witnesses_present: witnessesVal,
+            substance_involved: currentSlots.substance_involved || null,
+            target_population: currentSlots.target_population || null,
+            reporter_identity: isAnonPref ? 'Anonymous' : (childName || 'Anonymous')
+          },
+          safety_and_danger_assessment: {
+            immediate_danger: Boolean(currentSlots.immediate_danger || rawSafety.immediate_danger),
+            physical_harm_indicated: Boolean(currentSlots.physical_harm_indicated || rawSafety.physical_harm_indicated),
+            is_ongoing_or_scheduled: Boolean(currentSlots.is_ongoing || rawIncident.frequency === 'repeated'),
+            urgent_action_required: Boolean(isL3 || currentSlots.immediate_danger || rawSafety.urgent_review)
+          },
+          recommended_action_plan: currentSlots.safeguarding_recommendations || (isTeacher ? [
+            'Immediate confidential notification of Designated Safeguarding Lead (DSL)',
+            'Protect student from potential staff retaliation'
+          ] : isL3 ? [
+            'Immediate in-person administrative dispatch and safety check',
+            'Notify campus security and local authorities'
+          ] : [
+            'Schedule supportive counselor check-in with student',
+            'Document peer conflict in pastoral care system'
+          ]),
+          conversation_log: this.turns.map(t => ({
+            turn: t.turn,
+            speaker: t.speaker,
+            text: t.text,
+            emotion: t.emotion || 'Listening',
+            timestamp: t.timestamp
+          }))
+        },
         extractedSlots: {
           category: categoryVal,
           severity_level: currentSlots.severity_level || (isL3 ? 'L3' : 'L1'),
