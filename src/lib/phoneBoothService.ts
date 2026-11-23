@@ -1,6 +1,6 @@
 import { ref, push, set, update, serverTimestamp } from 'firebase/database';
 import { database } from './firebase';
-import { getNextReportNumber, formatReportId } from './reportUtils';
+import { getNextReportNumber, formatReportId, sanitizeForFirebase } from './reportUtils';
 import { SCHOOL_CONFIG } from '@/config/school';
 
 export interface PhoneBoothTurn {
@@ -69,8 +69,11 @@ export function getSavedPhoneBoothWsUrl(): string {
       return paramWs;
     }
     const saved = localStorage.getItem(STORAGE_KEY_WS);
-    if (saved && saved !== 'ws://127.0.0.1:8765' && saved !== 'ws://localhost:8765') {
+    if (saved) {
       return saved;
+    }
+    if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+      return 'ws://127.0.0.1:8765';
     }
     return SECONDARY_LAPTOP_WS_URL;
   } catch {
@@ -382,8 +385,10 @@ export class PhoneBoothSessionManager {
       return clean;
     }
 
+    const isLocalhostHost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
     const candidates = Array.from(new Set([
       preferredUrl,
+      ...(isLocalhostHost ? ['ws://127.0.0.1:8765', 'ws://localhost:8765'] : []),
       'ws://10.94.141.76:8765',
       'ws://desktop-5tk1mc6.local:8765',
       getSavedPhoneBoothWsUrl(),
@@ -802,14 +807,14 @@ export class PhoneBoothSessionManager {
     // 2. Finalize Conversation record in Firebase
     if (this.currentConversationKey) {
       try {
-        await update(ref(database, `conversations/${this.currentConversationKey}`), {
+        await update(ref(database, `conversations/${this.currentConversationKey}`), sanitizeForFirebase({
           status: 'completed',
           endedAt: serverTimestamp(),
           durationSeconds: durationSeconds,
           finalSlots: currentSlots
-        });
+        }));
       } catch (e) {
-        console.error('Error finalizing conversation in Firebase:', e);
+        console.warn('Optional conversation finalize sync warning:', e);
       }
     }
 
@@ -849,6 +854,23 @@ export class PhoneBoothSessionManager {
         source: 'phone_booth_voice_agent',
         school: SCHOOL_CONFIG.name,
         conversationId: this.currentConversationKey,
+        transcript: this.turns.map(t => ({
+          turn: t.turn,
+          speaker: t.speaker,
+          text: t.text,
+          emotion: t.emotion || 'Listening',
+          timestamp: t.timestamp
+        })),
+        voiceAnalytics: {
+          durationSeconds: durationSeconds,
+          totalTurns: this.turns.length,
+          studentTurns: this.turns.filter(t => t.speaker === 'student').length,
+          agentTurns: this.turns.filter(t => t.speaker === 'agent').length,
+          detectedEmotions: Array.from(new Set(this.turns.map(t => t.emotion).filter(Boolean))),
+          concludingEmotion: this.turns.slice().reverse().find(t => t.emotion)?.emotion || 'Reassured',
+          speechEngine: 'Llama 3.2 3B + ElevenLabs Sarah HD'
+        },
+        aiSummary: currentSlots.summary || rawIncident.description || null,
 
         // 1. Identity & Anonymity
         identity: {
@@ -936,7 +958,8 @@ export class PhoneBoothSessionManager {
 
       // Push to standard reports or higher authority based on AI escalation decision
       const targetNode = requiresHigherAuthority ? 'higher_authority_reports' : 'reports';
-      const pushed = await push(ref(database, targetNode), reportPayload);
+      const cleanPayload = sanitizeForFirebase(reportPayload);
+      const pushed = await push(ref(database, targetNode), cleanPayload);
       savedReportKey = pushed.key;
 
       console.log(`✅ Phone Booth report stored to Firebase at ${targetNode}/${savedReportKey} (${requiresHigherAuthority ? 'Higher Authority' : 'Normal'})`);

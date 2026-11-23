@@ -149,9 +149,39 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
     };
   }, [callState]);
 
-  // Keep Completed state steady without auto-redirect countdown
+  const resetToIdle = () => {
+    setCallState('idle');
+    setSubmittedReportId(null);
+    setTurns([]);
+    setExtractedSlots({});
+    setCurrentAgentSpeakingText('');
+    setLastAgentSpeech('');
+    setInterimStudentText('');
+    setLastStudentSpeech('');
+    setCallDuration(0);
+    setIsAgentSpeaking(false);
+    setIsStudentTalking(false);
+    setIsListening(false);
+    setIdleCountdown(null);
+  };
+
+  // Auto-reset back to idle screen after report is submitted (5-second kiosk loop)
   useEffect(() => {
-    if (callState !== 'completed') {
+    if (callState === 'completed') {
+      setIdleCountdown(5);
+      const interval = setInterval(() => {
+        setIdleCountdown((prev) => {
+          if (prev === null || prev <= 1) {
+            clearInterval(interval);
+            resetToIdle();
+            return null;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+
+      return () => clearInterval(interval);
+    } else {
       setIdleCountdown(null);
     }
   }, [callState]);
@@ -918,9 +948,13 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
                 </div>
               )}
 
-              <div className="pt-2">
-                <Button size="sm" variant="outline" onClick={() => setCallState('idle')}>
-                  Back to Welcome Screen
+              <div className="pt-2 flex flex-col items-center gap-2">
+                <Badge variant="outline" className="text-xs bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20">
+                  Returning to live phone booth in {idleCountdown ?? 5}s...
+                </Badge>
+                <Button size="sm" variant="default" className="bg-emerald-600 hover:bg-emerald-700 text-white mt-1 gap-1.5" onClick={resetToIdle}>
+                  <Phone className="w-4 h-4" />
+                  Return to Phone Booth Now
                 </Button>
               </div>
             </div>

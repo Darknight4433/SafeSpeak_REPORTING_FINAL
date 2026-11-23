@@ -35,6 +35,7 @@ import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
 import { Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { SCHOOL_CONFIG } from '@/config/school';
+import { sanitizeForFirebase } from '@/lib/reportUtils';
 import { PhoneBooth } from '@/components/PhoneBooth';
 import type { ExtractedReportSlots } from '@/lib/phoneBoothService';
 
@@ -306,7 +307,8 @@ const Report = () => {
       console.log(`Writing to Firebase (${targetPath})...`, reportPayload);
 
       const targetRef = ref(database, targetPath);
-      const res = await push(targetRef, reportPayload);
+      const cleanPayload = sanitizeForFirebase(reportPayload);
+      const res = await push(targetRef, cleanPayload);
 
       // If critical urgency on non-teacher report, mirror to higher_authority_reports
       if (!isTeacher && values.intensity === 'extreme') {
@@ -415,7 +417,6 @@ const Report = () => {
               onSwitchToTyping={handleSwitchToTyping}
               onReportSubmitted={(reportId) => {
                 setSubmittedReportId(reportId);
-                setSuccessModalOpen(true);
               }}
             />
           ) : (
@@ -916,10 +917,13 @@ const Report = () => {
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => setSuccessModalOpen(false)}
+                  onClick={() => {
+                    setSuccessModalOpen(false);
+                    setReportingMode('booth');
+                  }}
                   className="flex-1 text-xs"
                 >
-                  Submit Another Report
+                  Return to Phone Booth
                 </Button>
                 <Button
                   type="button"

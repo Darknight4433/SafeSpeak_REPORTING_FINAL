@@ -32,3 +32,25 @@ export function formatReportId(reportNumber: number): string {
 export function parseReportId(reportId: string): number {
   return parseInt(reportId.replace('no', ''), 10);
 }
+
+/**
+ * Recursively cleans any object before sending to Firebase Realtime Database.
+ * Replaces undefined values with null and preserves serverTimestamp sentinel objects { '.sv': 'timestamp' }.
+ */
+export function sanitizeForFirebase<T>(obj: T): T {
+  if (obj === undefined) return null as any;
+  if (obj === null || typeof obj !== 'object') return obj;
+  if ((obj as any)['.sv']) return obj;
+  if (Array.isArray(obj)) {
+    return obj.map(sanitizeForFirebase) as any;
+  }
+  const result: Record<string, any> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value === undefined) {
+      result[key] = null;
+    } else {
+      result[key] = sanitizeForFirebase(value);
+    }
+  }
+  return result as any;
+}

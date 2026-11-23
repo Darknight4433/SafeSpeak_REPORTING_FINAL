@@ -13,6 +13,11 @@ echo.
 
 cd /d "%~dp0"
 
+:: Ensure local Python installations take precedence over WindowsApps stub
+if exist "%LOCALAPPDATA%\Python\bin\python.exe" set "PATH=%LOCALAPPDATA%\Python\bin;%PATH%"
+if exist "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" set "PATH=%LOCALAPPDATA%\Programs\Python\Python312;%PATH%"
+if exist "%LOCALAPPDATA%\Programs\Python\Python311\python.exe" set "PATH=%LOCALAPPDATA%\Programs\Python\Python311;%PATH%"
+
 :: 1. Check Python
 where python >nul 2>nul
 if %ERRORLEVEL% NEQ 0 (
