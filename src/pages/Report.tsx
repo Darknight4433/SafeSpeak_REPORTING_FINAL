@@ -225,7 +225,14 @@ const Report = () => {
     setIsSubmitting(true);
 
     try {
-      const isTeacher = values.category === 'teacher' || values.personType === 'teacher' || values.personType === 'staff';
+      // Comprehensive check: Does this report involve a teacher or school staff member?
+      const textHasTeacher = /\b(teacher|t\.?r\.?|staff|principal|faculty|sir|madam|prof)\b/i.test(values.description || '');
+      const isTeacher = values.category === 'teacher' ||
+                        values.category === 'teacher_involved' ||
+                        values.personType === 'teacher' ||
+                        values.personType === 'staff' ||
+                        Boolean(values.implicatedName && values.implicatedName.trim()) ||
+                        textHasTeacher;
 
       // 1. Validate Teacher/Staff specific requirements
       if (isTeacher) {
@@ -261,13 +268,14 @@ const Report = () => {
       const reportNumber = await getNextReportNumber();
       const reportId = formatReportId(reportNumber);
 
+      // Routing: Teacher/Staff reports route STRICTLY to higher_authority_reports
       const targetPath = isTeacher ? 'higher_authority_reports' : 'reports';
       const schoolName = isTeacher ? 'MGM Model School Ayiroor Varkala' : (values.location || SCHOOL_CONFIG.name);
 
-      const reportPayload = {
+      const reportPayload: Record<string, any> = {
         reportId,
         reportNumber,
-        category: values.category || 'other',
+        category: isTeacher ? 'teacher_involved' : (values.category || 'other'),
         intensity: values.intensity || 'medium',
         description: values.description,
         personType: isTeacher ? 'teacher' : (values.personType || 'student'),
@@ -284,7 +292,16 @@ const Report = () => {
         status: isTeacher ? 'escalated' : (values.intensity === 'extreme' ? 'escalated' : 'received'),
         riskLevel: isTeacher ? 'High' : (values.intensity === 'extreme' ? 'Critical' : (values.intensity === 'high' ? 'High' : 'Normal')),
         source: 'manual_web',
+        isEscalated: isTeacher || values.intensity === 'extreme',
       };
+
+      if (isTeacher) {
+        reportPayload.escalationMeta = {
+          escalated_by: 'teacher_staff_involvement',
+          escalated_reason: 'Report implicates school teacher or staff member',
+          timestamp: serverTimestamp(),
+        };
+      }
 
       console.log(`Writing to Firebase (${targetPath})...`, reportPayload);
 
