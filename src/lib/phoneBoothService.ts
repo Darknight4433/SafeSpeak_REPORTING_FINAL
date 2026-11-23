@@ -867,8 +867,9 @@ export class PhoneBoothSessionManager {
     try {
       const rawEscalation = (currentSlots as any).escalation_decision || {};
       const aiRequestedHigherAuth = rawEscalation.reporting_pathway === 'higher_authority';
+      const isDrugSubstance = currentSlots.category === 'substance_abuse' || Boolean(currentSlots.substance_involved);
       const isTeacher = currentSlots.category === 'teacher_involved' || (currentSlots.implicated_person && /teacher|staff|principal|coach|sir|madam|miss/i.test(currentSlots.implicated_person));
-      const isL3 = currentSlots.severity_level === 'L3' || currentSlots.is_escalation_required;
+      const isL3 = currentSlots.severity_level === 'L3' || currentSlots.is_escalation_required || isDrugSubstance;
       const requiresHigherAuthority = aiRequestedHigherAuth || isTeacher || isL3;
 
       const categoryVal = currentSlots.category || (isTeacher ? 'teacher_involved' : 'safety');
@@ -996,6 +997,9 @@ export class PhoneBoothSessionManager {
         location: locationVal,
         incidentTimeframe: timeframeVal,
         witnessesPresent: witnessesVal,
+        substance_involved: currentSlots.substance_involved || null,
+        target_population: currentSlots.target_population || null,
+        safeguarding_recommendations: currentSlots.safeguarding_recommendations || null,
         physicalHarmIndicated: Boolean(currentSlots.physical_harm_indicated || rawSafety.physical_harm_indicated),
         immediateDanger: Boolean(currentSlots.immediate_danger || rawSafety.immediate_danger),
         isOngoing: Boolean(currentSlots.is_ongoing || rawIncident.frequency === 'repeated'),
@@ -1009,6 +1013,9 @@ export class PhoneBoothSessionManager {
           incident_timeframe: timeframeVal,
           implicated_person: implicatedVal,
           witnesses_present: witnessesVal,
+          substance_involved: currentSlots.substance_involved || null,
+          target_population: currentSlots.target_population || null,
+          safeguarding_recommendations: currentSlots.safeguarding_recommendations || null,
           physical_harm_indicated: Boolean(currentSlots.physical_harm_indicated || rawSafety.physical_harm_indicated),
           immediate_danger: Boolean(currentSlots.immediate_danger || rawSafety.immediate_danger),
           is_ongoing: Boolean(currentSlots.is_ongoing || rawIncident.frequency === 'repeated'),
