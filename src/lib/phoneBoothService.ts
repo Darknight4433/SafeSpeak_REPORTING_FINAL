@@ -44,8 +44,8 @@ export interface PhoneBoothState {
   error: string | null;
 }
 
-export const SECONDARY_LAPTOP_WS_URL = 'ws://192.168.10.39:8765';
-export const MDNS_LAPTOP_WS_URL = 'ws://desktop-4l1f9jg.local:8765';
+export const SECONDARY_LAPTOP_WS_URL = 'ws://10.94.141.76:8765';
+export const MDNS_LAPTOP_WS_URL = 'ws://desktop-5tk1mc6.local:8765';
 const DEFAULT_WS_URL = SECONDARY_LAPTOP_WS_URL;
 const STORAGE_KEY_WS = 'safespeak_phone_booth_ws';
 
@@ -105,7 +105,7 @@ export class PhoneBoothSessionManager {
   private startTime: number = 0;
   private listeners: ((state: Partial<PhoneBoothState>) => void)[] = [];
   private turns: PhoneBoothTurn[] = [];
-
+  
   // Phase 3 Streaming Audio Queue & Barge-In State
   private speechQueue: SpeechQueueItem[] = [];
   private isProcessingQueue: boolean = false;
@@ -269,8 +269,8 @@ export class PhoneBoothSessionManager {
       utterance.lang = 'en-US';
 
       const voices = window.speechSynthesis.getVoices();
-      const preferred = voices.find(v =>
-        (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('Karen'))
+      const preferred = voices.find(v => 
+        (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('Karen')) 
         && v.lang.startsWith('en')
       );
       if (preferred) utterance.voice = preferred;
@@ -310,7 +310,7 @@ export class PhoneBoothSessionManager {
       try {
         this.currentAudio.pause();
         this.currentAudio.currentTime = 0;
-      } catch { }
+      } catch {}
       this.currentAudio = null;
     }
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
@@ -336,7 +336,7 @@ export class PhoneBoothSessionManager {
         const timeout = setTimeout(() => {
           if (!resolved) {
             resolved = true;
-            try { testWs.close(); } catch { }
+            try { testWs.close(); } catch {}
             this.notify({ isConnected: false });
             resolve({ success: false, error: 'Connection timed out (3s). Check IP address and Windows Firewall.' });
           }
@@ -347,7 +347,7 @@ export class PhoneBoothSessionManager {
             resolved = true;
             clearTimeout(timeout);
             const latency = Date.now() - startTime;
-            try { testWs.close(); } catch { }
+            try { testWs.close(); } catch {}
             this.notify({ isConnected: true });
             resolve({ success: true, latencyMs: latency });
           }
@@ -384,12 +384,12 @@ export class PhoneBoothSessionManager {
 
     const candidates = Array.from(new Set([
       preferredUrl,
+      'ws://10.94.141.76:8765',
+      'ws://desktop-5tk1mc6.local:8765',
       getSavedPhoneBoothWsUrl(),
+      'ws://192.168.10.39:8765',
       'ws://127.0.0.1:8765',
       'ws://localhost:8765',
-      'ws://desktop-4l1f9jg.local:8765',
-      'ws://192.168.10.39:8765',
-      'ws://192.168.10.44:8765'
     ].filter(Boolean) as string[]));
 
     return new Promise((resolve) => {
@@ -402,7 +402,7 @@ export class PhoneBoothSessionManager {
           if (!clean.startsWith('ws://') && !clean.startsWith('wss://')) clean = `ws://${clean}`;
           const socket = new WebSocket(clean);
           const t = setTimeout(() => {
-            try { socket.close(); } catch { }
+            try { socket.close(); } catch {}
             onFail();
           }, 1500);
 
@@ -410,7 +410,7 @@ export class PhoneBoothSessionManager {
             if (!resolved) {
               resolved = true;
               clearTimeout(t);
-              try { socket.close(); } catch { }
+              try { socket.close(); } catch {}
               console.log(`🎯 Auto-discovered active SafeSpeak AI server at: ${clean}`);
               savePhoneBoothWsUrl(clean);
               resolve(clean);
@@ -456,7 +456,7 @@ export class PhoneBoothSessionManager {
     try {
       this.currentReportNumber = await getNextReportNumber();
       const reportIdStr = formatReportId(this.currentReportNumber);
-
+      
       const convRef = push(ref(database, 'conversations'));
       this.currentConversationKey = convRef.key;
 
@@ -637,7 +637,7 @@ export class PhoneBoothSessionManager {
             lastUpdated: serverTimestamp(),
             extractedSlots: slots
           });
-        } catch (e) { }
+        } catch (e) {}
       }
 
       this.notify({
@@ -791,7 +791,7 @@ export class PhoneBoothSessionManager {
       try {
         this.ws.send(JSON.stringify({ type: 'call_ended' }));
         this.ws.close();
-      } catch { }
+      } catch {}
     }
 
     const durationSeconds = Math.round((Date.now() - this.startTime) / 1000);
@@ -955,4 +955,3 @@ export class PhoneBoothSessionManager {
 }
 
 export const phoneBoothManager = new PhoneBoothSessionManager();
-   
