@@ -159,6 +159,55 @@ export class PhoneBoothSessionManager {
   }
 
   /**
+   * Probes the server URL without starting a call session to check if AI is online
+   */
+  public async probeConnection(serverUrl: string): Promise<{ success: boolean; latencyMs?: number; error?: string }> {
+    return new Promise((resolve) => {
+      const startTime = Date.now();
+      try {
+        let clean = serverUrl.trim();
+        if (!clean.startsWith('ws://') && !clean.startsWith('wss://')) {
+          clean = `ws://${clean}`;
+        }
+        const testWs = new WebSocket(clean);
+        let resolved = false;
+
+        const timeout = setTimeout(() => {
+          if (!resolved) {
+            resolved = true;
+            try { testWs.close(); } catch {}
+            this.notify({ isConnected: false });
+            resolve({ success: false, error: 'Connection timed out (3s). Check IP address and Windows Firewall.' });
+          }
+        }, 3000);
+
+        testWs.onopen = () => {
+          if (!resolved) {
+            resolved = true;
+            clearTimeout(timeout);
+            const latency = Date.now() - startTime;
+            try { testWs.close(); } catch {}
+            this.notify({ isConnected: true });
+            resolve({ success: true, latencyMs: latency });
+          }
+        };
+
+        testWs.onerror = () => {
+          if (!resolved) {
+            resolved = true;
+            clearTimeout(timeout);
+            this.notify({ isConnected: false });
+            resolve({ success: false, error: 'Connection refused. Ensure START-AI-SERVER.bat is running on the laptop and port 8765 is allowed in Firewall.' });
+          }
+        };
+      } catch (err: any) {
+        this.notify({ isConnected: false });
+        resolve({ success: false, error: err?.message || 'Invalid WebSocket URL' });
+      }
+    });
+  }
+
+  /**
    * Starts a Phone Booth call session:
    * 1. Creates a real-time conversation record in Firebase
    * 2. Opens WebSocket connection to secondary laptop AI

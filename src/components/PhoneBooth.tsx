@@ -59,6 +59,8 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [tempWsUrl, setTempWsUrl] = useState(serverUrl);
   const [recognition, setRecognition] = useState<any>(null);
+  const [isTestingConnection, setIsTestingConnection] = useState(false);
+  const [testResult, setTestResult] = useState<{ success?: boolean; message?: string } | null>(null);
 
   // Live Spoken Monitor: What AI Hears & What AI Says
   const [currentAgentSpeakingText, setCurrentAgentSpeakingText] = useState('');
@@ -70,6 +72,25 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
   const durationTimerRef = useRef<number | null>(null);
   const countdownTimerRef = useRef<number | null>(null);
   const [idleCountdown, setIdleCountdown] = useState<number | null>(null);
+
+  // Background Connectivity Health-Check when idle
+  useEffect(() => {
+    let active = true;
+    const checkServer = async () => {
+      if (callState === 'idle') {
+        const res = await phoneBoothManager.probeConnection(serverUrl);
+        if (active && res.success) {
+          setIsConnected(true);
+        }
+      }
+    };
+    checkServer();
+    const interval = setInterval(checkServer, 10000);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, [serverUrl, callState]);
 
   // Auto-scroll transcript to bottom
   useEffect(() => {
@@ -736,24 +757,103 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
               Secondary Laptop AI Server Address
             </DialogTitle>
             <DialogDescription>
-              Configure the WebSocket address of the RTX 3050 laptop running Qwen 2.5 7B.
+              Configure the WebSocket address of the RTX 3050 laptop running Llama 3.2 3B.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-3">
             <div className="space-y-2">
-              <label className="text-xs font-semibold text-muted-foreground">
-                WebSocket URL (Secondary Laptop LAN IP)
+              <label className="text-xs font-semibold text-muted-foreground flex items-center justify-between">
+                <span>WebSocket URL</span>
+                <span className="text-[10px] text-emerald-600">Port 8765</span>
               </label>
-              <Input
-                value={tempWsUrl}
-                onChange={(e) => setTempWsUrl(e.target.value)}
-                placeholder="ws://192.168.1.15:8765"
-                className="font-mono text-sm"
-              />
-              <p className="text-[11px] text-muted-foreground">
-                Run <code className="bg-muted px-1 py-0.5 rounded">start-phone-booth-server.bat</code> on your laptop to display its local LAN IP address.
-              </p>
+              <div className="flex gap-2">
+                <Input
+                  value={tempWsUrl}
+                  onChange={(e) => {
+                    setTempWsUrl(e.target.value);
+                    setTestResult(null);
+                  }}
+                  placeholder="ws://192.168.10.44:8765"
+                  className="font-mono text-sm"
+                />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={async () => {
+                    setIsTestingConnection(true);
+                    setTestResult(null);
+                    const res = await phoneBoothManager.probeConnection(tempWsUrl);
+                    setIsTestingConnection(false);
+                    if (res.success) {
+                      setTestResult({
+                        success: true,
+                        message: `✅ Connected! Latency: ${res.latencyMs}ms. SafeSpeak AI is Online!`
+                      });
+                      setIsConnected(true);
+                    } else {
+                      setTestResult({
+                        success: false,
+                        message: `❌ ${res.error || 'Connection failed'}`
+                      });
+                      setIsConnected(false);
+                    }
+                  }}
+                  disabled={isTestingConnection}
+                  className="shrink-0 text-xs gap-1"
+                >
+                  {isTestingConnection ? (
+                    <>
+                      <Sparkles className="w-3.5 h-3.5 animate-spin" />
+                      Testing...
+                    </>
+                  ) : (
+                    'Test Ping'
+                  )}
+                </Button>
+              </div>
+
+              {/* Quick Fill Preset Buttons */}
+              <div className="flex items-center gap-1.5 pt-1">
+                <span className="text-[10px] text-muted-foreground">Quick select:</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTempWsUrl('ws://192.168.10.44:8765');
+                    setTestResult(null);
+                  }}
+                  className="text-[10px] px-2 py-0.5 rounded bg-muted hover:bg-muted/80 text-foreground font-mono border"
+                >
+                  Direct IP: 192.168.10.44
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTempWsUrl('ws://desktop-5tk1mc6.local:8765');
+                    setTestResult(null);
+                  }}
+                  className="text-[10px] px-2 py-0.5 rounded bg-muted hover:bg-muted/80 text-foreground font-mono border"
+                >
+                  .local Hostname
+                </button>
+              </div>
+
+              {/* Test Result Message Box */}
+              {testResult && (
+                <div className={`p-2.5 rounded-lg text-xs border ${
+                  testResult.success
+                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300'
+                    : 'bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-300'
+                }`}>
+                  <p className="font-medium">{testResult.message}</p>
+                  {!testResult.success && (
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      💡 If connection failed, make sure <strong>START-AI-SERVER.bat</strong> is running on the laptop and try the <strong>Direct IP</strong> option. Also verify Windows Defender Firewall allows port 8765.
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
@@ -762,11 +862,16 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
               Cancel
             </Button>
             <Button
-              onClick={() => {
+              onClick={async () => {
                 savePhoneBoothWsUrl(tempWsUrl);
                 setServerUrl(tempWsUrl);
                 setIsSettingsOpen(false);
                 toast.success('AI Server address saved.');
+                const res = await phoneBoothManager.probeConnection(tempWsUrl);
+                if (res.success) {
+                  setIsConnected(true);
+                  toast.success('Connected to AI Assistant!');
+                }
               }}
               className="bg-emerald-600 hover:bg-emerald-700 text-white"
             >
