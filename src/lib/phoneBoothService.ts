@@ -547,7 +547,7 @@ export class PhoneBoothSessionManager {
     if (!text || text.trim().length === 0) return;
 
     // Barge-In: if AI is currently speaking, cut off speech immediately so student is heard!
-    if (this.speechQueue.length > 0 || (typeof window !== 'undefined' && window.speechSynthesis.speaking)) {
+    if (this.currentAudio || this.speechQueue.length > 0 || (typeof window !== 'undefined' && window.speechSynthesis.speaking)) {
       this.stopSpeaking();
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
         this.ws.send(JSON.stringify({ type: 'barge_in' }));

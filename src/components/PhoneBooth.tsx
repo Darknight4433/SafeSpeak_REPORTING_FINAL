@@ -81,6 +81,7 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
   const isAgentSpeakingRef = useRef<boolean>(false);
   const lastAgentSpeechRef = useRef<string>('');
   const extractedSlotsRef = useRef(extractedSlots);
+  const callStateRef = useRef(callState);
 
   useEffect(() => {
     isAgentSpeakingRef.current = isAgentSpeaking;
@@ -94,18 +95,8 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
     extractedSlotsRef.current = extractedSlots;
   }, [extractedSlots]);
 
-  // Immediate Zero-Touch Auto-Start on Station Launch and after call completion (1.5 seconds)
   useEffect(() => {
-    let launchTimer: NodeJS.Timeout | null = null;
-    if (callState === 'idle') {
-      launchTimer = setTimeout(() => {
-        console.log("🚀 Hands-Free Kiosk: Starting phone session automatically...");
-        handlePickUp();
-      }, 1500);
-    }
-    return () => {
-      if (launchTimer) clearTimeout(launchTimer);
-    };
+    callStateRef.current = callState;
   }, [callState]);
 
   // Background Connectivity Health-Check when idle
@@ -221,53 +212,66 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
 
     rec.onresult = (event: any) => {
       let interim = '';
+      let spokenFinal = '';
       for (let i = event.resultIndex; i < event.results.length; ++i) {
         if (event.results[i].isFinal) {
-          const spoken = event.results[i][0].transcript.trim();
-          if (spoken.length > 0) {
-            // Echo suppression: Ignore if AI voice is currently speaking this text
-            if (isAgentSpeakingRef.current && lastAgentSpeechRef.current) {
-              const aiSpeech = lastAgentSpeechRef.current.toLowerCase();
-              const studentLower = spoken.toLowerCase();
-              if (aiSpeech.includes(studentLower) || studentLower.includes(aiSpeech.slice(0, 20))) {
-                console.log('🔇 Suppressed acoustic echo from AI voice');
-                return;
-              }
-            }
-
-            // Duplicate suppression: Prevent firing twice within 2.5s
-            const now = Date.now();
-            if (spoken === lastDispatchedTextRef.current.text && now - lastDispatchedTextRef.current.time < 2500) {
-              return;
-            }
-            lastDispatchedTextRef.current = { text: spoken, time: now };
-
-            if (speechSilenceTimeoutRef.current) clearTimeout(speechSilenceTimeoutRef.current);
-            console.log('🎤 Student said (final):', spoken);
-            setLastStudentSpeech(spoken);
-            setInterimStudentText('');
-            phoneBoothManager.sendStudentSpeech(spoken);
-            return;
-          }
+          spokenFinal = event.results[i][0].transcript.trim();
         } else {
           interim += event.results[i][0].transcript;
         }
       }
 
-      if (interim.trim()) {
-        const spokenInterim = interim.trim();
-        setInterimStudentText(spokenInterim);
+      const activeText = (spokenFinal || interim).trim();
+      if (!activeText) return;
 
-        // Echo check for interim
-        if (isAgentSpeakingRef.current && lastAgentSpeechRef.current) {
+      // 1. WAKE WORD DETECTION (When booth is idle/standby)
+      if (callStateRef.current === 'idle') {
+        const WAKE_WORD_REGEX = /\b(hey safespeak|safespeak|hello safespeak|hello|hi safespeak|hi|help|start)\b/i;
+        if (WAKE_WORD_REGEX.test(activeText)) {
+          console.log("🌟 [WAKE WORD DETECTED] Waking up SafeSpeak AI voice station:", activeText);
+          setInterimStudentText('');
+          handlePickUp();
+        }
+        return;
+      }
+
+      // 2. INSTANT BARGE-IN (Mute AI voice immediately the moment student speaks)
+      if (callStateRef.current === 'active' && isAgentSpeakingRef.current) {
+        // Echo check: Ignore if AI voice is currently speaking this exact phrase
+        if (lastAgentSpeechRef.current) {
           const aiSpeech = lastAgentSpeechRef.current.toLowerCase();
-          const studentLower = spokenInterim.toLowerCase();
+          const studentLower = activeText.toLowerCase();
           if (aiSpeech.includes(studentLower) || studentLower.includes(aiSpeech.slice(0, 20))) {
             return;
           }
         }
+        console.log("🛑 [INSTANT BARGE-IN] Student spoke -> Muting AI voice immediately");
+        phoneBoothManager.stopSpeaking();
+        setIsAgentSpeaking(false);
+      }
 
-        // Fast silence auto-dispatch (750ms) for snappy, natural turn-taking
+      // 3. FINAL SPEECH DISPATCH
+      if (spokenFinal) {
+        // Duplicate check within 2.5s
+        const now = Date.now();
+        if (spokenFinal === lastDispatchedTextRef.current.text && now - lastDispatchedTextRef.current.time < 2500) {
+          return;
+        }
+        lastDispatchedTextRef.current = { text: spokenFinal, time: now };
+
+        if (speechSilenceTimeoutRef.current) clearTimeout(speechSilenceTimeoutRef.current);
+        console.log('🎤 Student said (final):', spokenFinal);
+        setLastStudentSpeech(spokenFinal);
+        setInterimStudentText('');
+        phoneBoothManager.sendStudentSpeech(spokenFinal);
+        return;
+      }
+
+      // 4. INTERIM SPEECH DISPATCH (700ms silence auto-send)
+      if (interim.trim()) {
+        const spokenInterim = interim.trim();
+        setInterimStudentText(spokenInterim);
+
         if (speechSilenceTimeoutRef.current) clearTimeout(speechSilenceTimeoutRef.current);
         speechSilenceTimeoutRef.current = window.setTimeout(() => {
           const now = Date.now();
@@ -281,7 +285,7 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
             setInterimStudentText('');
             phoneBoothManager.sendStudentSpeech(spokenInterim);
           }
-        }, 750);
+        }, 700);
       }
     };
 
@@ -292,22 +296,21 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
     };
 
     rec.onend = () => {
-      // Auto-restart continuously while the call is active
-      if (isListeningRef.current) {
-        setTimeout(() => {
-          if (isListeningRef.current && recognitionRef.current) {
-            try {
-              recognitionRef.current.start();
-            } catch (err) {
-              // Ignore already started
-            }
+      // Auto-restart continuously in both idle (for wake word) and active states
+      setTimeout(() => {
+        if (recognitionRef.current) {
+          try {
+            recognitionRef.current.start();
+          } catch (err) {
+            // Ignore already started
           }
-        }, 120);
-      }
+        }
+      }, 100);
     };
 
     recognitionRef.current = rec;
     setRecognition(rec);
+    try { rec.start(); } catch {}
 
     return () => {
       isListeningRef.current = false;
@@ -490,10 +493,10 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
                 </p>
               </div>
 
-              {/* Auto-start Notification */}
-              <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 text-xs font-semibold animate-pulse">
+              {/* Voice Wake-Word Guide Banner */}
+              <div className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-emerald-500/15 border border-emerald-500/40 text-emerald-800 dark:text-emerald-200 text-xs sm:text-sm font-semibold animate-pulse shadow-md">
                 <Sparkles className="w-4 h-4 text-emerald-500" />
-                Hands-Free Station: Auto-connecting to SafeSpeak AI...
+                <span>Say <strong>&ldquo;Hey SafeSpeak&rdquo;</strong> or <strong>&ldquo;Hello&rdquo;</strong> to wake up, or tap below</span>
               </div>
 
               {/* Big Physical/Touch Button */}

@@ -75,9 +75,48 @@ def synthesize_elevenlabs_b64(text: str):
             print(f"⚠️ ElevenLabs key #{current_eleven_key_idx+1} error: {e}. Rotating key...")
             current_eleven_key_idx = (current_eleven_key_idx + 1) % len(ELEVEN_LABS_KEYS)
     return None
-import subprocess
-import urllib.request
-import urllib.error
+
+def transcribe_elevenlabs_bytes(audio_bytes: bytes) -> str | None:
+    """Transcribes audio using ElevenLabs Scribe STT with automatic key rotation."""
+    global current_eleven_key_idx
+    if not audio_bytes or len(audio_bytes) < 400:
+        return None
+
+    boundary = '----WebKitFormBoundary7MA4YWxkTrZu0gW'
+    parts = [
+        b'--' + boundary.encode() + b'\r\nContent-Disposition: form-data; name="model_id"\r\n\r\nscribe_v1\r\n',
+        b'--' + boundary.encode() + b'\r\nContent-Disposition: form-data; name="file"; filename="audio.wav"\r\nContent-Type: audio/wav\r\n\r\n' + audio_bytes + b'\r\n',
+        b'--' + boundary.encode() + b'--\r\n'
+    ]
+    body = b''.join(parts)
+
+    for _ in range(len(ELEVEN_LABS_KEYS)):
+        key = ELEVEN_LABS_KEYS[current_eleven_key_idx]
+        url = "https://api.elevenlabs.io/v1/speech-to-text"
+        req = urllib.request.Request(
+            url,
+            data=body,
+            headers={
+                "xi-api-key": key,
+                "Content-Type": "multipart/form-data; boundary=" + boundary
+            },
+            method="POST"
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=10) as res:
+                result = json.loads(res.read().decode("utf-8"))
+                text = result.get("text", "").strip()
+                if text:
+                    print(f"🎙️ [ElevenLabs STT] Transcribed: \"{text}\"")
+                    return text
+                return ""
+        except urllib.error.HTTPError as he:
+            print(f"⚠️ ElevenLabs STT key #{current_eleven_key_idx+1} status {he.code}. Rotating key...")
+            current_eleven_key_idx = (current_eleven_key_idx + 1) % len(ELEVEN_LABS_KEYS)
+        except Exception as e:
+            print(f"⚠️ ElevenLabs STT key #{current_eleven_key_idx+1} error: {e}. Rotating key...")
+            current_eleven_key_idx = (current_eleven_key_idx + 1) % len(ELEVEN_LABS_KEYS)
+    return None
 
 # Server Configuration
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST_URL", "http://127.0.0.1:11434")
@@ -368,6 +407,84 @@ async def handle_websocket_client(websocket, active_model):
         }))
         conversation_history.append({"role": "assistant", "content": initial_greeting})
 
+        async def process_turn(student_text):
+            try:
+                print(f"🧒 Student: \"{student_text}\"")
+                conversation_history.append({"role": "user", "content": student_text})
+
+                # Signal client that AI is processing turn
+                await websocket.send(json.dumps({"type": "agent_thinking"}))
+
+                full_reply_text = ""
+                loop = asyncio.get_running_loop()
+                queue = asyncio.Queue()
+
+                def producer():
+                    try:
+                        for s in stream_qwen_chat(conversation_history, active_model):
+                            loop.call_soon_threadsafe(queue.put_nowait, s)
+                    except Exception as pe:
+                        print(f"⚠️ Streaming producer error: {pe}")
+                    finally:
+                        loop.call_soon_threadsafe(queue.put_nowait, None)
+
+                stream_thread = threading.Thread(target=producer, daemon=True)
+                stream_thread.start()
+
+                while True:
+                    sentence = await queue.get()
+                    if sentence is None:
+                        break
+                    full_reply_text += " " + sentence
+                    sentence_audio = await loop.run_in_executor(None, synthesize_elevenlabs_b64, sentence)
+                    await websocket.send(json.dumps({
+                        "type": "agent_stream_sentence",
+                        "sentence": sentence,
+                        "audio_base64": sentence_audio,
+                        "detected_emotion": "Empathetic",
+                        "is_final_turn": False
+                    }))
+
+                conversation_history.append({"role": "assistant", "content": full_reply_text.strip()})
+                print(f"🤖 AI Spoke: \"{full_reply_text.strip()}\"")
+
+                # Check for voice-activated goodbye / natural call conclusion
+                is_departure = bool(re.search(r'\b(goodbye|good bye|bye|bye bye|that\'s all|thats all|i\'m done|im done|thank you bye|hang up|end call|that is all|nothing else|see you|got to go|have to go|thank you that is all|i have to leave|done now|finish)\b', student_text, re.IGNORECASE))
+                ai_departure = bool(re.search(r'\b(goodbye|take care.*goodbye|farewell|bye now|safe day.*goodbye)\b', full_reply_text, re.IGNORECASE))
+                if is_departure or ai_departure:
+                    print("👋 [VOICE HANG UP] Natural goodbye detected. Emitting auto-hangup packet.")
+                    await websocket.send(json.dumps({
+                        "type": "agent_goodbye_conclusion",
+                        "should_auto_hangup": True
+                    }))
+
+                # Asynchronously extract slots without blocking voice flow
+                extracted = await loop.run_in_executor(
+                    None, extract_slots_background, conversation_history, active_model
+                )
+                for k, v in extracted.items():
+                    if v is not None and v != "":
+                        session_slots[k] = v
+
+                # Auto-escalation flag check (L3, teacher misconduct, or immediate danger)
+                if (session_slots.get("category") == "teacher_involved" or
+                    session_slots.get("severity_level") == "L3" or
+                    session_slots.get("immediate_danger") is True):
+                    session_slots["is_escalation_required"] = True
+
+                await websocket.send(json.dumps({
+                    "type": "turn_slots_updated",
+                    "slots": session_slots,
+                    "detected_emotion": extracted.get("detected_emotion", "Listening"),
+                    "severity_level": session_slots.get("severity_level", "L1"),
+                    "category": session_slots.get("category", "other")
+                }))
+
+            except asyncio.CancelledError:
+                print("🛑 [BARGE-IN CANCELLED] AI turn cancelled cleanly by student interruption.")
+            except Exception as te:
+                print(f"⚠️ Error in turn processing: {te}")
+
         async for message in websocket:
             try:
                 data = json.loads(message)
@@ -393,85 +510,25 @@ async def handle_websocket_client(websocket, active_model):
                     }))
                     break
 
-                if msg_type == "student_speech":
-                    student_text = data.get("text", "").strip()
-                    if not student_text:
-                        continue
+                if msg_type in ("student_speech", "student_audio"):
+                    if current_turn_task and not current_turn_task.done():
+                        current_turn_task.cancel()
 
-                    print(f"🧒 Student: \"{student_text}\"")
-                    conversation_history.append({"role": "user", "content": student_text})
-
-                    # Signal client that AI is processing turn
-                    await websocket.send(json.dumps({"type": "agent_thinking"}))
-
-                    # Stream sentences in real time as each sentence is formed (<150ms latency)
-                    full_reply_text = ""
-                    loop = asyncio.get_running_loop()
-                    queue = asyncio.Queue()
-
-                    def producer():
-                        try:
-                            for s in stream_qwen_chat(conversation_history, active_model):
-                                loop.call_soon_threadsafe(queue.put_nowait, s)
-                        except Exception as pe:
-                            print(f"⚠️ Streaming producer error: {pe}")
-                        finally:
-                            loop.call_soon_threadsafe(queue.put_nowait, None)
-
-                    stream_thread = threading.Thread(target=producer, daemon=True)
-                    stream_thread.start()
-
-                    while True:
-                        sentence = await queue.get()
-                        if sentence is None:
-                            break
-                        full_reply_text += " " + sentence
-                        sentence_audio = await loop.run_in_executor(None, synthesize_elevenlabs_b64, sentence)
+                    if msg_type == "student_audio":
+                        raw_b64 = data.get("audio_base64", "")
+                        audio_bytes = base64.b64decode(raw_b64) if raw_b64 else b""
+                        student_text = await asyncio.get_running_loop().run_in_executor(None, transcribe_elevenlabs_bytes, audio_bytes)
+                        if not student_text:
+                            continue
                         await websocket.send(json.dumps({
-                            "type": "agent_stream_sentence",
-                            "sentence": sentence,
-                            "audio_base64": sentence_audio,
-                            "detected_emotion": "Empathetic",
-                            "is_final_turn": False
+                            "type": "student_speech_transcribed",
+                            "text": student_text
                         }))
+                    else:
+                        student_text = data.get("text", "").strip()
 
-                    conversation_history.append({"role": "assistant", "content": full_reply_text.strip()})
-                    print(f"🤖 AI Spoke: \"{full_reply_text.strip()}\"")
-
-                    # Check for voice-activated goodbye / natural call conclusion
-                    is_departure = bool(re.search(r'\b(goodbye|good bye|bye|bye bye|that\'s all|thats all|i\'m done|im done|thank you bye|hang up|end call|that is all|nothing else|see you|got to go|have to go|thank you that is all|i have to leave|done now|finish)\b', student_text, re.IGNORECASE))
-                    ai_departure = bool(re.search(r'\b(goodbye|take care.*goodbye|farewell|bye now|safe day.*goodbye)\b', full_reply_text, re.IGNORECASE))
-                    if is_departure or ai_departure:
-                        print("👋 [VOICE HANG UP] Natural goodbye detected. Emitting auto-hangup packet.")
-                        await websocket.send(json.dumps({
-                            "type": "agent_goodbye_conclusion",
-                            "should_auto_hangup": True
-                        }))
-
-                    # Asynchronously extract slots without blocking voice flow
-                    async def async_extract():
-                        extracted = await loop.run_in_executor(
-                            None, extract_slots_background, conversation_history, active_model
-                        )
-                        for k, v in extracted.items():
-                            if v is not None and v != "":
-                                session_slots[k] = v
-
-                        # Auto-escalation flag check (L3, teacher misconduct, or immediate danger)
-                        if (session_slots.get("category") == "teacher_involved" or
-                            session_slots.get("severity_level") == "L3" or
-                            session_slots.get("immediate_danger") is True):
-                            session_slots["is_escalation_required"] = True
-
-                        await websocket.send(json.dumps({
-                            "type": "turn_slots_updated",
-                            "slots": session_slots,
-                            "detected_emotion": extracted.get("detected_emotion", "Listening"),
-                            "severity_level": session_slots.get("severity_level", "L1"),
-                            "category": session_slots.get("category", "other")
-                        }))
-
-                    asyncio.create_task(async_extract())
+                    if student_text:
+                        current_turn_task = asyncio.create_task(process_turn(student_text))
 
             except json.JSONDecodeError:
                 print("⚠️ Invalid JSON packet received from client.")
