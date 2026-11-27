@@ -49,7 +49,7 @@ export interface PhoneBoothState {
   error: string | null;
 }
 
-export const SECONDARY_LAPTOP_WS_URL = 'ws://192.168.1.2:8765';
+export const SECONDARY_LAPTOP_WS_URL = 'ws://192.168.1.3:8765';
 export const MDNS_LAPTOP_WS_URL = 'ws://desktop-5tk1mc6.local:8765';
 const DEFAULT_WS_URL = SECONDARY_LAPTOP_WS_URL;
 const STORAGE_KEY_WS = 'safespeak_phone_booth_ws';
@@ -437,11 +437,11 @@ export class PhoneBoothSessionManager {
       : null;
 
     const candidates = Array.from(new Set([
-      'ws://192.168.1.2:8765',
+      'ws://192.168.1.3:8765',
+      'ws://desktop-5tk1mc6.local:8765',
       preferredUrl,
       dynamicHostWs,
-      'ws://192.168.1.9:8765',
-      'ws://desktop-5tk1mc6.local:8765',
+      'ws://192.168.1.2:8765',
       getSavedPhoneBoothWsUrl(),
       'ws://10.94.141.76:8765',
       'ws://192.168.10.39:8765',
