@@ -265,6 +265,15 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
       silenceDebounceMs: 1000,
       minSpeechDurationMs: 400,
       onVolumeChange: (volumePercent, isSpeaking) => {
+        const now = Date.now();
+        const isAIAudiblySpeaking = isAgentSpeakingRef.current || (now - agentSpeakingEndTimeRef.current < 1200);
+
+        if (isAIAudiblySpeaking) {
+          setMicLevel(0);
+          setIsStudentTalking(false);
+          return;
+        }
+
         setMicLevel(volumePercent);
         setIsStudentTalking(isSpeaking);
 
@@ -276,6 +285,13 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
       },
       onSpeechStart: () => {},
       onSpeechEnd: (wavBase64) => {
+        const now = Date.now();
+        const isAIAudiblySpeaking = isAgentSpeakingRef.current || (now - agentSpeakingEndTimeRef.current < 1200);
+        if (isAIAudiblySpeaking) {
+          console.log("🔇 [Acoustic Echo Gated] Dropping audio captured during/after agent speech.");
+          return;
+        }
+
         // Stream audio to server if call is active
         if (callStateRef.current === 'active') {
           console.log("🎤 [VAD Audio Segment Completed] Sending audio to server...");

@@ -342,6 +342,32 @@ def select_best_model(available_models):
             print(f"❌ Fallback pull failed: {e2}")
             return None
 
+DEPARTURE_REGEX = r'(goodbye|good\s*bye|bye|bye\s*bye|that\'?s\s*all|thats\s*all|i\'?m\s*done|im\s*done|thank\s*you\s*bye|hang\s*up|end\s*call|that\s*is\s*all|nothing\s*else|see\s*you|got\s*to\s*go|have\s*to\s*go|done\s*now|finish|no\s*more|ready\s*to\s*finish|stop\s*call|call\s*end|cut\s*the\s*call|കട്ട്|വിട|ബൈ|മതി|തീർന്നു|ഇത്രയേ\s*ഉള്ളൂ|അത്രയേ\s*ഉള്ളൂ|പോവുകയാണ്|അവസാനിപ്പിക്കുക|അവസാനിപ്പിക്കാം|അവസാനിപ്പിക്കട്ടെ|അവസാനിപ്പിക്കൂ|അവസാനിപ്പിക്കണം|അവസാനിപ്പി|നിർത്തുക|നിർത്താം|നിർത്തട്ടെ|കഴിഞ്ഞു|ഒന്നുമില്ല|വേറെ\s*ഒന്നുമില്ല|കൂടുതൽ\s*ഒന്നുമില്ല)'
+
+def is_acoustic_echo(heard_text: str, conversation_history: list) -> bool:
+    """Detects if speech heard by the microphone is an acoustic echo of recent AI speech."""
+    if not heard_text or len(heard_text.strip()) < 2:
+        return True
+    heard_clean = re.sub(r'[^\w\s]', ' ', heard_text.lower()).strip()
+    heard_words = [w for w in heard_clean.split() if len(w) > 1]
+    if not heard_words:
+        return True
+    recent_agent_texts = [
+        msg.get("content", "").lower() 
+        for msg in conversation_history[-3:] 
+        if msg.get("role") == "assistant"
+    ]
+    if not recent_agent_texts:
+        return False
+    combined_agent_text = " ".join(recent_agent_texts)
+    combined_clean = re.sub(r'[^\w\s]', ' ', combined_agent_text)
+    if heard_clean in combined_clean or (len(heard_clean) > 15 and combined_clean in heard_clean):
+        return True
+    agent_words = set(re.findall(r'\b\w+\b', combined_clean))
+    overlap = sum(1 for w in heard_words if w in agent_words)
+    ratio = overlap / len(heard_words)
+    return ratio >= 0.45
+
 def generate_safespeak_empathy_sentences(conversation_history, session_language="en"):
     """
     Intelligent child safeguarding dialog engine following the 3 Safeguarding Phases.
@@ -360,7 +386,7 @@ def generate_safespeak_empathy_sentences(conversation_history, session_language=
     # Malayalam dialog branch
     if session_language == "ml" or bool(re.search(r'[\u0d00-\u0d7f]', last_text)):
         # Departure / goodbye
-        if re.search(r'\b(വിട|ബൈ|മതി|തീർന്നു|ഇത്രയേ ഉള്ളൂ|പോവുകയാണ്|goodbye|bye|that\'s all|thats all)\b', last_text):
+        if re.search(DEPARTURE_REGEX, last_text, re.IGNORECASE):
             return ["നിങ്ങൾ പറഞ്ഞ കാര്യങ്ങൾ ഞാൻ സുരക്ഷിതമായി കൗൺസിലർമാർക്ക് കൈമാറിയിട്ടുണ്ട്.", "ധൈര്യത്തോടെ സംസാരിച്ചതിന് ഒത്തിരി നന്ദി. സൂക്ഷ്മതയോടെ പോകുക, ഗുഡ്ബൈ!"]
         
         # Language selection turn (e.g. "Malayalam I like to talk in Malayalam", "മലയാളം")
@@ -419,7 +445,7 @@ def generate_safespeak_empathy_sentences(conversation_history, session_language=
         ]
 
     # Phase 4: Goodbye / Call Conclusion
-    if re.search(r'\b(goodbye|good bye|bye|bye bye|that\'s all|thats all|i\'m done|im done|thank you bye|hang up|end call|that is all|nothing else|see you|got to go|have to go|done now|finish|no more|ready to finish)\b', last_text):
+    if re.search(DEPARTURE_REGEX, last_text, re.IGNORECASE):
         return ["Thank you for sharing this with me.", "Your report has been safely noted for our counselors, and you did wonderfully by speaking up today. Take care, and goodbye!"]
 
     # Check if name was already provided anywhere in full conversation
@@ -1032,8 +1058,8 @@ async def handle_websocket_client(websocket, active_model):
                 print(f"🤖 AI Spoke ({session_language}): \"{full_reply_text.strip()}\"")
 
                 # Check for voice-activated goodbye / natural call conclusion (English and Malayalam)
-                is_departure = bool(re.search(r'\b(goodbye|good bye|bye|bye bye|that\'s all|thats all|i\'m done|im done|thank you bye|hang up|end call|that is all|nothing else|see you|got to go|have to go|thank you that is all|i have to leave|done now|finish|വിട|ബൈ|മതി|തീർന്നു|ഇത്രയേ ഉള്ളൂ|പോവുകയാണ്)\b', student_text, re.IGNORECASE))
-                ai_departure = bool(re.search(r'\b(goodbye|take care.*goodbye|farewell|bye now|safe day.*goodbye|സൂക്ഷ്മതയോടെ പോകുക.*ഗുഡ്ബൈ)\b', full_reply_text, re.IGNORECASE))
+                is_departure = bool(re.search(DEPARTURE_REGEX, student_text, re.IGNORECASE))
+                ai_departure = bool(re.search(r'(goodbye|take care.*goodbye|farewell|bye now|safe day.*goodbye|സൂക്ഷ്മതയോടെ പോകുക.*ഗുഡ്ബൈ|ഗുഡ്ബൈ)', full_reply_text, re.IGNORECASE))
                 if is_departure or ai_departure:
                     print("👋 [VOICE HANG UP] Natural goodbye detected. Emitting auto-hangup packet.")
                     await websocket.send(json.dumps({
@@ -1141,6 +1167,10 @@ async def handle_websocket_client(websocket, active_model):
                         student_text = data.get("text", "").strip()
 
                     if student_text:
+                        if is_acoustic_echo(student_text, conversation_history):
+                            print(f"🔇 [ACOUSTIC ECHO SUPPRESSED] Ignored echo of AI speech: '{student_text}'")
+                            continue
+
                         current_turn_task = asyncio.create_task(process_turn(student_text))
 
             except json.JSONDecodeError:

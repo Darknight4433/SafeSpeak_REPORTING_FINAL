@@ -156,7 +156,9 @@ echo "🌐 Launching browser executable: $BROWSER_CMD"
     --js-flags="--max-old-space-size=256" \
     --renderer-process-limit=2 \
     --force-audio-output-channels=1 \
+    --alsa-output-device=default \
+    --alsa-input-device=default \
     --unsafely-treat-insecure-origin-as-secure="http://localhost:8080,http://${LAPTOP_IP}:5173,http://${LAPTOP_IP}:8080" \
     --disk-cache-size=10485760 \
     --media-cache-size=10485760 \
-    "$TARGET_URL" 2>/dev/null
+    "$TARGET_URL"
