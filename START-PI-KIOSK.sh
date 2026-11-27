@@ -64,52 +64,38 @@ if command -v xset >/dev/null 2>&1; then
     xset s off -dpms s noblank 2>/dev/null || true
 fi
 
-# 5. Auto-discover Laptop Address (Station B)
+# 5. Zero-Config Auto-Connect (Never requires typing an IP!)
 LAPTOP_IP=""
 
-# Priority 1: User explicitly passed an IP argument
 if [ -n "$1" ] && [ "$1" != "auto" ]; then
     LAPTOP_IP="$1"
 fi
 
-# Priority 2: Zero-Config UDP Beacon Discovery (Zero typing required!)
 if [ -z "$LAPTOP_IP" ]; then
-    echo "🔍 Listening for SafeSpeak Laptop Beacon on network (Zero-Config mode)..."
-    DETECTED_IP=$(python3 -c "
-import socket, json
-sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-try:
-    sock.bind(('0.0.0.0', 8767))
-    sock.settimeout(2.5)
-    data, addr = sock.recvfrom(1024)
-    info = json.loads(data.decode())
-    if info.get('service') == 'safespeak_ai':
-        print(addr[0])
-except Exception:
-    pass
-" 2>/dev/null)
-    if [ -n "$DETECTED_IP" ]; then
-        echo "🎉 [AUTO-DISCOVERED] Successfully paired with Laptop at $DETECTED_IP!"
-        LAPTOP_IP="$DETECTED_IP"
-        echo "$LAPTOP_IP" > "$DIR/laptop_ip.txt" 2>/dev/null || true
-    fi
+    echo "🔍 Auto-discovering SafeSpeak Laptop on network (Hotspot / Wi-Fi / LAN)..."
+    for attempt in {1..8}; do
+        DETECTED_IP="$(python3 "$DIR/scripts/find_laptop.py" 2>/dev/null || true)"
+        if [ -n "$DETECTED_IP" ]; then
+            echo "🎉 [AUTO-CONNECTED] Successfully paired with SafeSpeak Server at $DETECTED_IP!"
+            LAPTOP_IP="$DETECTED_IP"
+            echo "$LAPTOP_IP" > "$DIR/laptop_ip.txt" 2>/dev/null || true
+            break
+        fi
+        echo "   Waiting for SafeSpeak server to come online... (Attempt $attempt/8)"
+        sleep 2
+    done
 fi
 
-# Priority 3: Try resolving mDNS or known laptop IPs
 if [ -z "$LAPTOP_IP" ]; then
-    if ping -c 1 -W 2 desktop-5tk1mc6.local >/dev/null 2>&1; then
-        LAPTOP_IP="desktop-5tk1mc6.local"
-    elif [ -f "$DIR/laptop_ip.txt" ]; then
+    if [ -f "$DIR/laptop_ip.txt" ]; then
         LAPTOP_IP="$(head -n 1 "$DIR/laptop_ip.txt" | tr -d '\r\n ')"
-    elif ping -c 1 -W 2 192.168.1.50 >/dev/null 2>&1; then
-        LAPTOP_IP="192.168.1.50"
     else
-        LAPTOP_IP="10.94.141.76"
+        LAPTOP_IP="192.168.10.39"
     fi
+    echo "ℹ️ Using fallback address: $LAPTOP_IP"
 fi
 
-echo "🔍 Detected Laptop Target: $LAPTOP_IP"
+echo "🔍 Active Target: $LAPTOP_IP"
 WS_TARGET="ws://${LAPTOP_IP}:8765"
 
 # 6. Check if Laptop Web Server is accessible on Port 5173
