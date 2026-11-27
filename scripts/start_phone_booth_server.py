@@ -38,13 +38,40 @@ ELEVEN_LABS_KEYS = [
 ELEVEN_LABS_VOICE_ID = "EXAVITQu4vr4xnSDxMaL"  # Sarah (Mature, Reassuring, Confident - Premade Free Tier)
 current_eleven_key_idx = 0
 
+def synthesize_local_edge_tts_b64(text: str):
+    """Local neural voice fallback (en-US-AriaNeural) via edge-tts."""
+    try:
+        import edge_tts
+        clean_text = re.sub(r'[*_#`~]', '', text).strip()
+        if not clean_text:
+            return None
+        async def _gen():
+            communicate = edge_tts.Communicate(clean_text, "en-US-AriaNeural")
+            chunks = []
+            async for chunk in communicate.stream():
+                if chunk["type"] == "audio":
+                    chunks.append(chunk["data"])
+            return b"".join(chunks)
+
+        loop = asyncio.new_event_loop()
+        try:
+            audio_bytes = loop.run_until_complete(_gen())
+            if audio_bytes:
+                return base64.b64encode(audio_bytes).decode("ascii")
+        finally:
+            loop.close()
+    except Exception as e:
+        print(f"⚠️ edge-tts fallback synthesis error: {e}")
+    return None
+
 def synthesize_elevenlabs_b64(text: str):
-    """Synthesizes high-fidelity voice via ElevenLabs Turbo v2.5 with automatic key rotation."""
+    """Synthesizes high-fidelity voice via ElevenLabs Turbo v2.5 with key rotation and edge-tts neural fallback."""
     global current_eleven_key_idx
     if not text or not text.strip():
         return None
     clean_text = re.sub(r'[*_#`~]', '', text).strip()
 
+    # 1. Attempt ElevenLabs keys with short timeout
     for _ in range(len(ELEVEN_LABS_KEYS)):
         key = ELEVEN_LABS_KEYS[current_eleven_key_idx]
         url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVEN_LABS_VOICE_ID}/stream?optimize_streaming_latency=4"
@@ -67,14 +94,20 @@ def synthesize_elevenlabs_b64(text: str):
             method="POST"
         )
         try:
-            with urllib.request.urlopen(req, timeout=7) as res:
+            with urllib.request.urlopen(req, timeout=3) as res:
                 return base64.b64encode(res.read()).decode("ascii")
         except urllib.error.HTTPError as he:
             print(f"⚠️ ElevenLabs key #{current_eleven_key_idx+1} status {he.code}. Rotating key...")
             current_eleven_key_idx = (current_eleven_key_idx + 1) % len(ELEVEN_LABS_KEYS)
         except Exception as e:
-            print(f"⚠️ ElevenLabs key #{current_eleven_key_idx+1} error: {e}. Rotating key...")
             current_eleven_key_idx = (current_eleven_key_idx + 1) % len(ELEVEN_LABS_KEYS)
+
+    # 2. Local Neural Voice Fallback (edge-tts en-US-AriaNeural)
+    print(f"🎙️ [Local Neural Voice] Synthesizing speech for: \"{clean_text[:50]}...\"")
+    local_b64 = synthesize_local_edge_tts_b64(clean_text)
+    if local_b64:
+        return local_b64
+
     return None
 
 def transcribe_elevenlabs_bytes(audio_bytes: bytes) -> str | None:

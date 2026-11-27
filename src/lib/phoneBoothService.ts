@@ -160,6 +160,7 @@ export class PhoneBoothSessionManager {
             'Content-Type': 'application/json',
             'xi-api-key': apiKey
           },
+          signal: AbortSignal.timeout(1800),
           body: JSON.stringify({
             text: text,
             model_id: 'eleven_turbo_v2_5', // Fastest model for conversational AI (<250ms)
@@ -276,7 +277,9 @@ export class PhoneBoothSessionManager {
         clearInterval(this.ttsKeepAliveTimer);
         this.ttsKeepAliveTimer = null;
       }
-      window.speechSynthesis.cancel();
+      if (window.speechSynthesis.paused) {
+        window.speechSynthesis.resume();
+      }
 
       const utterance = new SpeechSynthesisUtterance(textToSpeak);
       this.currentUtterance = utterance; // Prevent V8 garbage collection mid-speech
@@ -286,7 +289,7 @@ export class PhoneBoothSessionManager {
 
       const voices = window.speechSynthesis.getVoices();
       const preferred = voices.find(v => 
-        (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('Karen')) 
+        (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('Karen') || v.name.includes('Zira') || v.name.includes('Jenny') || v.name.includes('Aria')) 
         && v.lang.startsWith('en')
       );
       if (preferred) utterance.voice = preferred;
