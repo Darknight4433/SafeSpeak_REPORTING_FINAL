@@ -437,6 +437,7 @@ export class PhoneBoothSessionManager {
       : null;
 
     const candidates = Array.from(new Set([
+      'ws://192.168.1.2:8765',
       preferredUrl,
       dynamicHostWs,
       'ws://192.168.1.9:8765',
