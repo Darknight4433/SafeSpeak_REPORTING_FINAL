@@ -1,21 +1,54 @@
-import React from 'react';
-import { Link } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Shield, Lock, CheckCircle } from 'lucide-react';
+import { Shield, Lock, CheckCircle, PhoneCall } from 'lucide-react';
 import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
 
 const Index = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [countdown, setCountdown] = useState<number>(10);
+
+  useEffect(() => {
+    // Check if kiosk auto-redirect is enabled (via query parameter ?kiosk=true or auto redirect from booth launcher)
+    const params = new URLSearchParams(location.search);
+    const isKiosk = params.get('kiosk') === 'true' || location.search.includes('ws=');
+    
+    // Auto-transition to Phone Booth after 10 seconds on kiosk / start-up
+    const timer = setInterval(() => {
+      setCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          const wsQuery = params.get('ws') ? `?ws=${params.get('ws')}` : '';
+          navigate(`/report${wsQuery}`);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [navigate, location]);
+
   return (
     <div className="min-h-screen flex flex-col">
       <Navbar />
       <main className="flex-1">
-        <section className="relative overflow-hidden bg-gradient-to-br from-primary/10 via-secondary/5 to-accent/10 py-20 px-4">
+        <section className="relative overflow-hidden bg-gradient-to-br from-primary/10 via-secondary/5 to-accent/10 py-16 px-4">
           <div className="container max-w-6xl mx-auto text-center relative z-10">
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-primary/20 bg-primary/5 mb-6 animate-fadeIn">
-              <Shield className="h-4 w-4 text-primary" />
-              <span className="text-sm font-medium">100% Confidential & Secure</span>
+            {/* 10-Second Kiosk Countdown Banner */}
+            <div className="inline-flex items-center gap-3 px-5 py-2.5 rounded-full border border-primary/30 bg-primary/10 mb-6 shadow-sm animate-pulse">
+              <PhoneCall className="h-4 w-4 text-primary animate-bounce" />
+              <span className="text-sm font-semibold text-primary">
+                Opening SafeSpeak Phone Booth in {countdown}s...
+              </span>
+              <Link to="/report">
+                <Button size="sm" variant="default" className="h-7 text-xs px-3">
+                  Open Now
+                </Button>
+              </Link>
             </div>
 
             <h1 className="text-5xl md:text-6xl font-bold mb-6 animate-slideUp">

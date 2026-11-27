@@ -16,7 +16,7 @@ echo "======================================================================="
 echo "🍓 SafeSpeak Phone Booth — Raspberry Pi 3 Kiosk Launcher"
 echo "======================================================================="
 
-# 1. Install/Update single-click desktop shortcut on Pi desktop
+# 1. Install desktop shortcut and autostart on Pi boot
 if [ -d "$HOME/Desktop" ]; then
     cat << EOF > "$HOME/Desktop/SafeSpeak-Phone-Booth.desktop"
 [Desktop Entry]
@@ -26,13 +26,28 @@ Comment=SafeSpeak Dual-Station Kiosk Terminal
 Exec=/bin/bash "$DIR/START-PI-KIOSK.sh"
 Path=$DIR
 Icon=phone
-Terminal=true
+Terminal=false
 Categories=Utility;Education;
 StartupNotify=false
 EOF
     chmod +x "$HOME/Desktop/SafeSpeak-Phone-Booth.desktop" 2>/dev/null || true
     gio set "$HOME/Desktop/SafeSpeak-Phone-Booth.desktop" metadata::trusted true 2>/dev/null || true
 fi
+
+# 1b. Configure automatic boot launch (autostart on Raspberry Pi OS boot)
+AUTOSTART_DIR="$HOME/.config/autostart"
+mkdir -p "$AUTOSTART_DIR" 2>/dev/null || true
+cat << EOF > "$AUTOSTART_DIR/safespeak-kiosk.desktop"
+[Desktop Entry]
+Type=Application
+Name=SafeSpeak Phone Booth Kiosk
+Comment=Launch SafeSpeak on Raspberry Pi Startup
+Exec=/bin/bash "$DIR/START-PI-KIOSK.sh"
+Path=$DIR
+Terminal=false
+X-GNOME-Autostart-enabled=true
+EOF
+chmod +x "$AUTOSTART_DIR/safespeak-kiosk.desktop" 2>/dev/null || true
 
 # 2. Kill any old hung Chromium or node processes to free 1GB RAM on Pi 3
 killall -9 chromium-browser chromium npm node 2>/dev/null || true
@@ -86,7 +101,8 @@ WS_TARGET="ws://${LAPTOP_IP}:8765"
 TARGET_URL=""
 if curl -s --connect-timeout 2 "http://${LAPTOP_IP}:5173" >/dev/null 2>&1; then
     echo "✅ Connected to Laptop Web Server at http://${LAPTOP_IP}:5173"
-    TARGET_URL="http://${LAPTOP_IP}:5173/#/report?ws=${WS_TARGET}"
+    # Show Home page first (which auto-redirects to phone booth after 10 seconds)
+    TARGET_URL="http://${LAPTOP_IP}:5173/#/?ws=${WS_TARGET}"
 else
     # Fallback: Host local pre-compiled dist/ bundle on Pi port 8080
     echo "ℹ️ Laptop web server not on 5173. Starting local Pi web server on port 8080..."
@@ -94,7 +110,7 @@ else
         python3 -m http.server 8080 --directory "$DIR/dist" >/dev/null 2>&1 &
         sleep 2
     fi
-    TARGET_URL="http://localhost:8080/#/report?ws=${WS_TARGET}"
+    TARGET_URL="http://localhost:8080/#/?ws=${WS_TARGET}"
 fi
 
 echo "🔗 Target Kiosk URL: $TARGET_URL"
