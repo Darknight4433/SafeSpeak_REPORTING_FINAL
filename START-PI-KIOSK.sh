@@ -34,20 +34,12 @@ EOF
     gio set "$HOME/Desktop/SafeSpeak-Phone-Booth.desktop" metadata::trusted true 2>/dev/null || true
 fi
 
-# 1b. Configure automatic boot launch (autostart on Raspberry Pi OS boot)
-AUTOSTART_DIR="$HOME/.config/autostart"
-mkdir -p "$AUTOSTART_DIR" 2>/dev/null || true
-cat << EOF > "$AUTOSTART_DIR/safespeak-kiosk.desktop"
-[Desktop Entry]
-Type=Application
-Name=SafeSpeak Phone Booth Kiosk
-Comment=Launch SafeSpeak on Raspberry Pi Startup
-Exec=/bin/bash "$DIR/START-PI-KIOSK.sh"
-Path=$DIR
-Terminal=false
-X-GNOME-Autostart-enabled=true
-EOF
-chmod +x "$AUTOSTART_DIR/safespeak-kiosk.desktop" 2>/dev/null || true
+# 1c. Force ALSA and PulseAudio to downmix stereo into 1-channel mono
+# (Essential for single-speaker handsets / phone booth earpieces)
+if command -v pactl >/dev/null 2>&1; then
+    pactl set-sink-mute @DEFAULT_SINK@ 0 2>/dev/null || true
+    pactl set-sink-volume @DEFAULT_SINK@ 100% 2>/dev/null || true
+fi
 
 # 2. Kill any old hung Chromium or node processes to free 1GB RAM on Pi 3
 killall -9 chromium-browser chromium npm node 2>/dev/null || true
@@ -163,6 +155,7 @@ echo "🌐 Launching browser executable: $BROWSER_CMD"
     --log-level=3 \
     --js-flags="--max-old-space-size=256" \
     --renderer-process-limit=2 \
+    --force-audio-output-channels=1 \
     --unsafely-treat-insecure-origin-as-secure="http://localhost:8080,http://${LAPTOP_IP}:5173,http://${LAPTOP_IP}:8080" \
     --disk-cache-size=10485760 \
     --media-cache-size=10485760 \
