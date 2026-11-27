@@ -10,6 +10,9 @@ echo Target Latency: ^<150ms per spoken turn (100+ tokens/sec)
 echo =====================================================================
 echo.
 
+if exist "%LOCALAPPDATA%\Python\pythoncore-3.14-64\python.exe" set "PATH=%LOCALAPPDATA%\Python\pythoncore-3.14-64;%PATH%"
+if exist "%LOCALAPPDATA%\Python\bin\python.exe" set "PATH=%LOCALAPPDATA%\Python\bin;%PATH%"
+
 :: 1. Check Python
 where python >nul 2>nul
 if %ERRORLEVEL% NEQ 0 (
