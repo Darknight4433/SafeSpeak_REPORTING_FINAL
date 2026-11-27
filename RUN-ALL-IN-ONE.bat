@@ -96,13 +96,13 @@ echo       [OK] Python dependencies verified.
 echo.
 echo [4/5] Launching SafeSpeak AI Voice Server (Port 8765)...
 set "SAFESPEAK_WS_PORT=8765"
-start "SafeSpeak AI Voice Server [Port 8765]" cmd /k "color 0A && title SafeSpeak AI Voice Server [Port 8765] && ""%PYTHON_EXE%"" scripts\start_phone_booth_server.py"
+start "SafeSpeak AI Voice Server [Port 8765]" cmd /k "%PYTHON_EXE% scripts\start_phone_booth_server.py"
 timeout /t 2 /nobreak >nul
 
 :: 8. Launch Vite Web Server on 0.0.0.0:5173
 echo.
 echo [5/5] Launching SafeSpeak Web Platform (Port 5173)...
-start "SafeSpeak Web Server [Port 5173]" cmd /k "color 0E && title SafeSpeak Web Server [Port 5173] && npm run dev -- --host 0.0.0.0 --port 5173"
+start "SafeSpeak Web Server [Port 5173]" cmd /k "npm run dev -- --host 0.0.0.0 --port 5173"
 
 :: Wait for servers to spin up
 echo.
