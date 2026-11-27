@@ -12,17 +12,14 @@ const Index = () => {
   const [countdown, setCountdown] = useState<number>(10);
 
   useEffect(() => {
-    // Check if kiosk auto-redirect is enabled (via query parameter ?kiosk=true or auto redirect from booth launcher)
-    const params = new URLSearchParams(location.search);
-    const isKiosk = params.get('kiosk') === 'true' || location.search.includes('ws=');
-    
-    // Auto-transition to Phone Booth after 10 seconds on kiosk / start-up
+    // Unconditionally redirect to /report after 10 seconds
     const timer = setInterval(() => {
       setCountdown((prev) => {
         if (prev <= 1) {
           clearInterval(timer);
-          const wsQuery = params.get('ws') ? `?ws=${params.get('ws')}` : '';
-          navigate(`/report${wsQuery}`);
+          // Preserve query parameters or ws query when redirecting
+          const rawSearch = window.location.search || (window.location.hash.includes('?') ? '?' + window.location.hash.split('?')[1] : '');
+          window.location.hash = `#/report${rawSearch}`;
           return 0;
         }
         return prev - 1;
@@ -30,7 +27,7 @@ const Index = () => {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [navigate, location]);
+  }, []);
 
   return (
     <div className="min-h-screen flex flex-col">
