@@ -95,6 +95,7 @@ echo       [OK] Python dependencies verified.
 :: 7. Launch Python Voice AI Server on 0.0.0.0:8765
 echo.
 echo [4/5] Launching SafeSpeak AI Voice Server (Port 8765)...
+for /f "tokens=5" %%p in ('netstat -ano ^| findstr ":8765 "') do taskkill /F /PID %%p >nul 2>nul
 set "SAFESPEAK_WS_PORT=8765"
 start "SafeSpeak AI Voice Server [Port 8765]" cmd /k "%PYTHON_EXE% scripts\start_phone_booth_server.py"
 ping -n 3 127.0.0.1 >nul

@@ -1267,7 +1267,24 @@ def start_udp_discovery_beacon(ws_port=8765, broadcast_port=8767):
     t.start()
     print(f"📡 [AUTO-DISCOVERY] Broadcaster live on UDP {broadcast_port} (Raspberry Pi connects automatically!)")
 
+def free_port_if_occupied(port):
+    """Automatically frees the port by killing any ghost/lingering previous server process."""
+    try:
+        if sys.platform == "win32":
+            output = subprocess.check_output(f'netstat -ano | findstr ":{port} "', shell=True, text=True)
+            for line in output.splitlines():
+                parts = line.strip().split()
+                if len(parts) >= 5 and parts[1].endswith(f":{port}"):
+                    pid = parts[4]
+                    if pid != str(os.getpid()):
+                        subprocess.run(f"taskkill /F /PID {pid}", shell=True, stdout=subprocess.DEV_NULL, stderr=subprocess.DEV_NULL)
+                        print(f"🧹 [PORT AUTO-RECOVERY] Freed port {port} from old ghost process (PID {pid})")
+                        time.sleep(0.8)
+    except Exception:
+        pass
+
 async def main_server():
+    free_port_if_occupied(WS_PORT)
     print("======================================================================")
     print("🛡️  SafeSpeak Phone Booth - Phase 3 AI Voice Engine (RTX 3050 6GB)")
     print("======================================================================")

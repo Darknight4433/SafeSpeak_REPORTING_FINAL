@@ -102,7 +102,8 @@ echo 💡 Enter either URL above on your Raspberry Pi SafeSpeak Phone Booth!
 echo =====================================================================
 echo.
 
-:: 8. Launch Python Voice Server
+:: 8. Free port 8765 if an old ghost server is running, then launch
+for /f "tokens=5" %%p in ('netstat -ano ^| findstr ":8765 "') do taskkill /F /PID %%p >nul 2>nul
 "%PYTHON_EXE%" "%~dp0scripts\start_phone_booth_server.py"
 
 if %ERRORLEVEL% NEQ 0 (
