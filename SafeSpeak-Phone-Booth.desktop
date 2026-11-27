@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=SafeSpeak Phone Booth
+Comment=SafeSpeak Dual-Station Kiosk Terminal
+Exec=/bin/bash -c "cd $HOME/SafeSpeak_REPORTING_FINAL && ./START-PI-KIOSK.sh"
+Icon=phone
+Terminal=false
+Categories=Utility;Education;
+StartupNotify=false

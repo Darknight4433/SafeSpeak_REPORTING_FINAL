@@ -64,7 +64,9 @@ echo       ✅ Python dependencies verified.
 
 :: 6. Set Environment Variables & Start Ollama service on 0.0.0.0
 echo.
-echo [4/5] Configuring network binding for Raspberry Pi access...
+echo [4/5] Configuring network binding & Windows Firewall for Raspberry Pi access...
+netsh advfirewall firewall add rule name="SafeSpeak-AI-Voice-WS-8765" dir=in action=allow protocol=TCP localport=8765 >nul 2>nul
+netsh advfirewall firewall add rule name="SafeSpeak-Web-Server-5173" dir=in action=allow protocol=TCP localport=5173 >nul 2>nul
 set OLLAMA_HOST=0.0.0.0:11434
 set OLLAMA_ORIGINS=*
 set SAFESPEAK_MODEL=llama3.2:3b

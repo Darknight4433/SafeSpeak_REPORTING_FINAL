@@ -49,7 +49,7 @@ export interface PhoneBoothState {
   error: string | null;
 }
 
-export const SECONDARY_LAPTOP_WS_URL = 'ws://10.94.141.76:8765';
+export const SECONDARY_LAPTOP_WS_URL = 'ws://192.168.1.9:8765';
 export const MDNS_LAPTOP_WS_URL = 'ws://desktop-5tk1mc6.local:8765';
 const DEFAULT_WS_URL = SECONDARY_LAPTOP_WS_URL;
 const STORAGE_KEY_WS = 'safespeak_phone_booth_ws';
@@ -430,15 +430,20 @@ export class PhoneBoothSessionManager {
     }
 
     const isLocalhostHost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+    const hostName = typeof window !== 'undefined' ? window.location.hostname : '';
+    const dynamicHostWs = (hostName && hostName !== 'localhost' && hostName !== '127.0.0.1')
+      ? `ws://${hostName}:8765`
+      : null;
+
     const candidates = Array.from(new Set([
       preferredUrl,
-      ...(isLocalhostHost ? ['ws://127.0.0.1:8765', 'ws://localhost:8765'] : []),
-      'ws://10.94.141.76:8765',
+      dynamicHostWs,
+      'ws://192.168.1.9:8765',
       'ws://desktop-5tk1mc6.local:8765',
       getSavedPhoneBoothWsUrl(),
+      'ws://10.94.141.76:8765',
       'ws://192.168.10.39:8765',
-      'ws://127.0.0.1:8765',
-      'ws://localhost:8765',
+      ...(isLocalhostHost ? ['ws://127.0.0.1:8765', 'ws://localhost:8765'] : []),
     ].filter(Boolean) as string[]));
 
     return new Promise((resolve) => {

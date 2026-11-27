@@ -3,11 +3,10 @@ title SafeSpeak All-In-One Launcher (AI + Web)
 color 0B
 
 echo =====================================================================
-echo 🛡️  SafeSpeak All-In-One Instant Launcher
+echo [SafeSpeak] Child Safeguarding Platform - All-In-One Launcher
 echo =====================================================================
-echo  - NVIDIA GPU / Ollama AI Model: Llama 3.2 3B
-echo  - Voice WebSocket Server: Port 8765
-echo  - Web Application: Port 5173
+echo  - Station B: RTX 3050 Laptop AI Engine
+echo  - Station A: Raspberry Pi Kiosk Terminal
 echo =====================================================================
 echo.
 
@@ -15,6 +14,8 @@ cd /d "%~dp0"
 
 :: Ensure local Python installations take precedence over WindowsApps stub
 if exist "%LOCALAPPDATA%\Python\bin\python.exe" set "PATH=%LOCALAPPDATA%\Python\bin;%PATH%"
+if exist "%LOCALAPPDATA%\Programs\Python\Python314\python.exe" set "PATH=%LOCALAPPDATA%\Programs\Python\Python314;%PATH%"
+if exist "%LOCALAPPDATA%\Programs\Python\Python313\python.exe" set "PATH=%LOCALAPPDATA%\Programs\Python\Python313;%PATH%"
 if exist "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" set "PATH=%LOCALAPPDATA%\Programs\Python\Python312;%PATH%"
 if exist "%LOCALAPPDATA%\Programs\Python\Python311\python.exe" set "PATH=%LOCALAPPDATA%\Programs\Python\Python311;%PATH%"
 
@@ -36,8 +37,37 @@ if %ERRORLEVEL% NEQ 0 (
     exit /b 1
 )
 
-:: 3. Check / Start Ollama
-echo [1/4] Verifying Ollama AI engine...
+:: 3. Configure Windows Firewall for Raspberry Pi Inbound Access (Ports 8765 & 5173)
+echo [1/5] Configuring Windows Firewall for Raspberry Pi...
+netsh advfirewall firewall add rule name="SafeSpeak-AI-Voice-WS-8765" dir=in action=allow protocol=TCP localport=8765 >nul 2>nul
+netsh advfirewall firewall add rule name="SafeSpeak-Web-Server-5173" dir=in action=allow protocol=TCP localport=5173 >nul 2>nul
+echo       [OK] Firewall rules active for ports 8765 (AI Voice) and 5173 (Web).
+
+:: 4. Detect Current Local LAN IPv4 & Hostname
+set "CURRENT_IP=127.0.0.1"
+for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /c:"IPv4 Address"') do (
+    for /f "tokens=1" %%b in ("%%a") do (
+        set "CURRENT_IP=%%b"
+    )
+)
+set "LAPTOP_MDNS=%COMPUTERNAME%.local"
+
+:: Save connection config for Pi
+(
+echo LAPTOP_IP=%CURRENT_IP%
+echo LAPTOP_HOSTNAME=%LAPTOP_MDNS%
+echo WS_URL=ws://%CURRENT_IP%:8765
+echo MDNS_WS_URL=ws://%LAPTOP_MDNS%:8765
+echo WEB_URL=http://%CURRENT_IP%:5173/#/report
+) > "%~dp0laptop_connection.txt"
+
+(
+echo %CURRENT_IP%
+) > "%~dp0laptop_ip.txt"
+
+:: 5. Check / Start Ollama
+echo.
+echo [2/5] Verifying Ollama AI engine...
 where ollama >nul 2>nul
 if %ERRORLEVEL% NEQ 0 (
     echo [WARNING] Ollama CLI not found. AI server will run in resilient zero-dependency mode.
@@ -46,51 +76,60 @@ if %ERRORLEVEL% NEQ 0 (
     set OLLAMA_ORIGINS=*
     curl -s http://127.0.0.1:11434/api/tags >nul 2>nul
     if %ERRORLEVEL% NEQ 0 (
-        echo       🚀 Starting Ollama background engine...
+        echo       [*] Starting Ollama background engine...
         start /b ollama serve >nul 2>nul
         timeout /t 2 /nobreak >nul
     )
-    echo       ✅ Ollama engine ready on http://127.0.0.1:11434
+    echo       [OK] Ollama engine ready on http://127.0.0.1:11434
 )
 
-:: 4. Verify Python Websockets Dependency
+:: 6. Verify Python Dependencies
 echo.
-echo [2/4] Verifying Python websockets...
-python -c "import websockets" >nul 2>nul
+echo [3/5] Verifying Python libraries (websockets, edge-tts)...
+python -c "import websockets, edge_tts" >nul 2>nul
 if %ERRORLEVEL% NEQ 0 (
-    echo       📦 Installing websockets for Python...
-    python -m pip install websockets -q
+    echo       [*] Installing websockets and edge-tts for Python...
+    python -m pip install websockets edge-tts -q
 )
-echo       ✅ Python websockets verified.
+echo       [OK] Python dependencies verified.
 
-:: 5. Launch Python Voice AI Server in background window
+:: 7. Launch Python Voice AI Server on 0.0.0.0:8765
 echo.
-echo [3/4] Launching SafeSpeak Voice AI Server (Port 8765)...
-start "SafeSpeak AI Voice Server [Port 8765]" cmd /k "color 0A && title SafeSpeak AI Voice Server && python scripts/start_phone_booth_server.py"
+echo [4/5] Launching SafeSpeak AI Voice Server (Port 8765)...
+set "SAFESPEAK_WS_PORT=8765"
+start "SafeSpeak AI Voice Server [Port 8765]" cmd /k "color 0A && title SafeSpeak AI Voice Server [Port 8765] && python scripts/start_phone_booth_server.py"
 timeout /t 2 /nobreak >nul
 
-:: 6. Launch Vite Web Server & Open Browser
+:: 8. Launch Vite Web Server on 0.0.0.0:5173
 echo.
-echo [4/4] Launching SafeSpeak Web Platform (Port 5173)...
-start "SafeSpeak Web Server [Port 5173]" cmd /k "color 0E && title SafeSpeak Web Server && npm run dev -- --host 0.0.0.0 --port 5173"
+echo [5/5] Launching SafeSpeak Web Platform (Port 5173)...
+start "SafeSpeak Web Server [Port 5173]" cmd /k "color 0E && title SafeSpeak Web Server [Port 5173] && npm run dev -- --host 0.0.0.0 --port 5173"
 
 :: Wait for servers to spin up
 echo.
-echo ⏳ Waiting 3 seconds for local servers to start...
+echo Waiting for servers to initialize...
 timeout /t 3 /nobreak >nul
 
-:: 7. Automatically open browser to the Voice Phone Booth
-echo 🚀 Opening SafeSpeak Voice Phone Booth in your browser...
+:: 9. Display Network Connection Info
+echo.
+echo =====================================================================
+echo  SAFESPEAK DUAL-STATION NETWORK STATUS:
+echo =====================================================================
+echo  LAPTOP (This PC):
+echo    - IPv4 Address:    %CURRENT_IP%
+echo    - Hostname / mDNS: %LAPTOP_MDNS%
+echo    - AI Voice Socket: ws://%CURRENT_IP%:8765
+echo    - Web Server URL:  http://%CURRENT_IP%:5173
+echo.
+echo  RASPBERRY PI (Station A - Kiosk):
+echo    On your Raspberry Pi, run either:
+echo       bash START-PI-KIOSK.sh
+echo    Or open in Pi browser:
+echo       http://%CURRENT_IP%:5173/#/report
+echo =====================================================================
+echo.
+
+:: Automatically open browser locally
 start http://localhost:5173/#/report
 
-echo.
-echo =====================================================================
-echo ✅ SAFESPEAK IS LIVE AND READY!
-echo =====================================================================
-echo  - Voice Phone Booth: http://localhost:5173/#/report
-echo  - Local AI Server:   ws://127.0.0.1:8765
-echo.
-echo You can plug in your USB headset and start speaking immediately!
-echo =====================================================================
-timeout /t 5 >nul
 exit /b 0
