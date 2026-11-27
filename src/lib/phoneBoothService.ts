@@ -56,6 +56,7 @@ const STORAGE_KEY_WS = 'safespeak_phone_booth_ws';
 
 // ElevenLabs Ultra-Realistic Spoken Voice Engine with Multi-Key Rotation
 export const ELEVEN_LABS_KEYS = [
+  'sk_121e60395564327f4d1dcb5eba3091013af2367fc0148397',
   'sk_8fde097b04c48a06ce5631baed05ea4dc4b9ea69df463597',
   'sk_ca770c72b95cb453420917026a970f32dd2ff2fc57c1b551',
   'sk_0a20833dd98773b18282f07fb2da25ea1ef68e68b1b43e6e',

@@ -28,8 +28,9 @@ import base64
 import urllib.request
 import urllib.error
 
-# ElevenLabs HD Voice Configuration with 4-Key Rotation
+# ElevenLabs HD Voice Configuration with Active Key & Multi-Key Rotation
 ELEVEN_LABS_KEYS = [
+    "sk_121e60395564327f4d1dcb5eba3091013af2367fc0148397",
     "sk_8fde097b04c48a06ce5631baed05ea4dc4b9ea69df463597",
     "sk_ca770c72b95cb453420917026a970f32dd2ff2fc57c1b551",
     "sk_0a20833dd98773b18282f07fb2da25ea1ef68e68b1b43e6e",
@@ -91,16 +92,64 @@ def synthesize_local_edge_tts_b64(text: str, language: str = "en"):
             pass
     return None
 
+def fetch_elevenlabs_direct_b64(text: str) -> str | None:
+    """Fetches high-quality Sarah speech directly from ElevenLabs using the active key."""
+    global current_eleven_key_idx
+    clean_text = re.sub(r'[*_#`~]', '', text).strip()
+    if not clean_text:
+        return None
+    url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVEN_LABS_VOICE_ID}?optimize_streaming_latency=4"
+    payload = json.dumps({
+        "text": clean_text,
+        "model_id": "eleven_turbo_v2_5",
+        "voice_settings": {
+            "stability": 0.5,
+            "similarity_boost": 0.8,
+            "style": 0.0,
+            "use_speaker_boost": True
+        }
+    }).encode("utf-8")
+    for _ in range(len(ELEVEN_LABS_KEYS)):
+        api_key = ELEVEN_LABS_KEYS[current_eleven_key_idx]
+        try:
+            req = urllib.request.Request(
+                url,
+                data=payload,
+                headers={
+                    "Content-Type": "application/json",
+                    "Accept": "audio/mpeg",
+                    "xi-api-key": api_key
+                }
+            )
+            with urllib.request.urlopen(req, timeout=3.0) as resp:
+                if resp.status == 200:
+                    audio_data = resp.read()
+                    return base64.b64encode(audio_data).decode("ascii")
+        except urllib.error.HTTPError as he:
+            if he.code in (401, 429):
+                current_eleven_key_idx = (current_eleven_key_idx + 1) % len(ELEVEN_LABS_KEYS)
+                continue
+        except Exception:
+            break
+    return None
+
 def synthesize_elevenlabs_b64(text: str, language: str = "en"):
     """
     Synthesizes natural, high-fidelity neural voice.
-    Uses edge-tts directly (ml-IN-SobhanaNeural for Malayalam, en-IN-NeerjaExpressiveNeural for English)
-    providing studio-quality, human-warmth speech without quota limits or robotic artifacts.
+    - Malayalam: Always uses edge-tts ml-IN-SobhanaNeural for authentic Kerala Malayalam.
+    - English: Uses ElevenLabs Turbo v2.5 with Sarah voice, with instant fallback to edge-tts.
     """
     if not text or not text.strip():
         return None
     clean_text = re.sub(r'[*_#`~]', '', text).strip()
-    return synthesize_local_edge_tts_b64(clean_text, language)
+    if language == "ml":
+        return synthesize_local_edge_tts_b64(clean_text, "ml")
+    # For English: Try ElevenLabs first with the user's active key
+    audio_b64 = fetch_elevenlabs_direct_b64(clean_text)
+    if audio_b64:
+        return audio_b64
+    # Fallback to local Edge-TTS NeerjaExpressiveNeural
+    return synthesize_local_edge_tts_b64(clean_text, "en")
 
 # Local Speech Recognition using faster-whisper with NVIDIA RTX CUDA Acceleration
 whisper_model = None
