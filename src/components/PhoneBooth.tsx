@@ -262,8 +262,8 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
     const detector = new AudioVoiceDetector({
       sampleRate: 16000,
       vadThreshold: 0.035,
-      silenceDebounceMs: 1000,
-      minSpeechDurationMs: 400,
+      silenceDebounceMs: 650,
+      minSpeechDurationMs: 350,
       onVolumeChange: (volumePercent, isSpeaking) => {
         const now = Date.now();
         const isAIAudiblySpeaking = isAgentSpeakingRef.current || (now - agentSpeakingEndTimeRef.current < 1200);
