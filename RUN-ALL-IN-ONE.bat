@@ -39,7 +39,8 @@ if %ERRORLEVEL% NEQ 0 (
 echo [1/5] Configuring Windows Firewall for Raspberry Pi...
 netsh advfirewall firewall add rule name="SafeSpeak-AI-Voice-WS-8765" dir=in action=allow protocol=TCP localport=8765 >nul 2>nul
 netsh advfirewall firewall add rule name="SafeSpeak-Web-Server-5173" dir=in action=allow protocol=TCP localport=5173 >nul 2>nul
-echo       [OK] Firewall rules active for ports 8765 (AI Voice) and 5173 (Web).
+netsh advfirewall firewall add rule name="SafeSpeak-AutoDiscovery-UDP-8767" dir=in action=allow protocol=UDP localport=8767 >nul 2>nul
+echo       [OK] Firewall rules active for ports 8765 (AI Voice), 5173 (Web), and 8767 (Auto-Discovery).
 
 :: 4. Detect Current Local LAN IPv4 & Hostname
 set "CURRENT_IP=127.0.0.1"

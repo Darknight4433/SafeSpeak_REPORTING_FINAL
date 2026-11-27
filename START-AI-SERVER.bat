@@ -70,6 +70,7 @@ echo.
 echo [4/5] Configuring network binding & Windows Firewall for Raspberry Pi access...
 netsh advfirewall firewall add rule name="SafeSpeak-AI-Voice-WS-8765" dir=in action=allow protocol=TCP localport=8765 >nul 2>nul
 netsh advfirewall firewall add rule name="SafeSpeak-Web-Server-5173" dir=in action=allow protocol=TCP localport=5173 >nul 2>nul
+netsh advfirewall firewall add rule name="SafeSpeak-AutoDiscovery-UDP-8767" dir=in action=allow protocol=UDP localport=8767 >nul 2>nul
 set OLLAMA_HOST=0.0.0.0:11434
 set OLLAMA_ORIGINS=*
 set SAFESPEAK_MODEL=llama3.2:3b

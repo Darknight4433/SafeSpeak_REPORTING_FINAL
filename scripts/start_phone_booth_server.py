@@ -1181,6 +1181,28 @@ async def handle_websocket_client(websocket, active_model):
     except Exception as e:
         print(f"📴 [CALL DISCONNECTED] Client connection dropped: {e}")
 
+def start_udp_discovery_beacon(ws_port=8765, broadcast_port=8767):
+    """Broadcasts discovery beacons across the local network so Raspberry Pi finds the laptop automatically."""
+    def beacon_loop():
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        payload = json.dumps({
+            "service": "safespeak_ai",
+            "ws_port": ws_port,
+            "web_port": 5173,
+            "hostname": socket.gethostname()
+        }).encode("utf-8")
+        while True:
+            try:
+                sock.sendto(payload, ("255.255.255.255", broadcast_port))
+            except Exception:
+                pass
+            time.sleep(1.5)
+
+    t = threading.Thread(target=beacon_loop, daemon=True, name="SafeSpeakBeacon")
+    t.start()
+    print(f"📡 [AUTO-DISCOVERY] Broadcaster live on UDP {broadcast_port} (Raspberry Pi connects automatically!)")
+
 async def main_server():
     print("======================================================================")
     print("🛡️  SafeSpeak Phone Booth - Phase 3 AI Voice Engine (RTX 3050 6GB)")
@@ -1220,6 +1242,9 @@ async def main_server():
     print(f"   ⭐ ws://{host_name}.local:{WS_PORT}  (Works on ANY Wi-Fi without changing!)")
     print(f"   👉 ws://{lan_ip}:{WS_PORT}")
     print("======================================================================\n")
+
+    # Start UDP Discovery Beacon so Raspberry Pi auto-connects without typing IP
+    start_udp_discovery_beacon(WS_PORT)
 
     async with websockets.serve(lambda ws: handle_websocket_client(ws, active_model), "0.0.0.0", WS_PORT):
         await asyncio.Future()

@@ -67,28 +67,45 @@ fi
 # 5. Auto-discover Laptop Address (Station B)
 LAPTOP_IP=""
 
-# Priority 1: User argument passed to script
-if [ -n "$1" ]; then
+# Priority 1: User explicitly passed an IP argument
+if [ -n "$1" ] && [ "$1" != "auto" ]; then
     LAPTOP_IP="$1"
-# Priority 2: Saved laptop_ip.txt file if present
-elif [ -f "$DIR/laptop_ip.txt" ]; then
-    LAPTOP_IP="$(head -n 1 "$DIR/laptop_ip.txt" | tr -d '\r\n ')"
+fi
+
+# Priority 2: Zero-Config UDP Beacon Discovery (Zero typing required!)
+if [ -z "$LAPTOP_IP" ]; then
+    echo "🔍 Listening for SafeSpeak Laptop Beacon on network (Zero-Config mode)..."
+    DETECTED_IP=$(python3 -c "
+import socket, json
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+try:
+    sock.bind(('0.0.0.0', 8767))
+    sock.settimeout(2.5)
+    data, addr = sock.recvfrom(1024)
+    info = json.loads(data.decode())
+    if info.get('service') == 'safespeak_ai':
+        print(addr[0])
+except Exception:
+    pass
+" 2>/dev/null)
+    if [ -n "$DETECTED_IP" ]; then
+        echo "🎉 [AUTO-DISCOVERED] Successfully paired with Laptop at $DETECTED_IP!"
+        LAPTOP_IP="$DETECTED_IP"
+        echo "$LAPTOP_IP" > "$DIR/laptop_ip.txt" 2>/dev/null || true
+    fi
 fi
 
 # Priority 3: Try resolving mDNS or known laptop IPs
-if [ -z "$LAPTOP_IP" ] || [ "$LAPTOP_IP" = "auto" ]; then
-    if ping -c 1 -W 2 192.168.1.50 >/dev/null 2>&1; then
-        LAPTOP_IP="192.168.1.50"
-    elif ping -c 1 -W 2 desktop-5tk1mc6.local >/dev/null 2>&1; then
+if [ -z "$LAPTOP_IP" ]; then
+    if ping -c 1 -W 2 desktop-5tk1mc6.local >/dev/null 2>&1; then
         LAPTOP_IP="desktop-5tk1mc6.local"
-    elif ping -c 1 -W 2 192.168.1.3 >/dev/null 2>&1; then
-        LAPTOP_IP="192.168.1.3"
-    elif ping -c 1 -W 2 192.168.1.4 >/dev/null 2>&1; then
-        LAPTOP_IP="192.168.1.4"
-    elif ping -c 1 -W 2 192.168.1.2 >/dev/null 2>&1; then
-        LAPTOP_IP="192.168.1.2"
-    else
+    elif [ -f "$DIR/laptop_ip.txt" ]; then
+        LAPTOP_IP="$(head -n 1 "$DIR/laptop_ip.txt" | tr -d '\r\n ')"
+    elif ping -c 1 -W 2 192.168.1.50 >/dev/null 2>&1; then
         LAPTOP_IP="192.168.1.50"
+    else
+        LAPTOP_IP="10.94.141.76"
     fi
 fi
 
