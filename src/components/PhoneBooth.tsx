@@ -274,16 +274,11 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
           handlePickUp();
         }
       },
-      onSpeechStart: () => {
-        // Acoustic protection: We intentionally do NOT kill AI speech here on raw microphone RMS volume.
-        // When laptop speakers play the AI's voice, the mic picks up volume > 0.035,
-        // which previously caused the AI to immediately mute itself midway!
-        // Genuine student barge-in is handled below with token-level acoustic echo filtering in WebSpeech.
-      },
+      onSpeechStart: () => {},
       onSpeechEnd: (wavBase64) => {
-        // Only stream WAV to ElevenLabs Scribe STT if WebSpeech is NOT active on this browser (e.g. Raspberry Pi offline)
-        if (!hasWorkingWebSpeechRef.current && callStateRef.current === 'active') {
-          console.log("🎤 [VAD Audio Segment Completed] Sending 16kHz WAV to AI Server Scribe STT...");
+        // Stream audio to server if call is active
+        if (callStateRef.current === 'active') {
+          console.log("🎤 [VAD Audio Segment Completed] Sending audio to server...");
           phoneBoothManager.sendStudentAudio(wavBase64);
         }
       },
