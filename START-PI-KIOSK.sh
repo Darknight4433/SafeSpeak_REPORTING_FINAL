@@ -37,8 +37,15 @@ fi
 # 2. Kill any old hung Chromium or node processes to free 1GB RAM on Pi 3
 killall -9 chromium-browser chromium npm node 2>/dev/null || true
 
-# 3. Wait for display server if launched on system boot
-for i in {1..15}; do
+# 3. Ensure DISPLAY and WAYLAND environment variables are present
+if [ -z "$DISPLAY" ] && [ -z "$WAYLAND_DISPLAY" ]; then
+    export DISPLAY=:0
+fi
+if [ -z "$XAUTHORITY" ] && [ -f "$HOME/.Xauthority" ]; then
+    export XAUTHORITY="$HOME/.Xauthority"
+fi
+
+for i in {1..5}; do
     if [ -n "$DISPLAY" ] || [ -n "$WAYLAND_DISPLAY" ]; then
         break
     fi
@@ -93,13 +100,25 @@ fi
 echo "🔗 Target Kiosk URL: $TARGET_URL"
 echo "🚀 Launching Hardware-Accelerated Lightweight Chromium (Pi 3 Mode)..."
 
-# 7. Open Chromium with Pi 3 (1GB RAM) memory optimizations
-BROWSER_CMD="chromium-browser"
-if ! command -v chromium-browser >/dev/null 2>&1; then
-    BROWSER_CMD="chromium"
+# 7. Locate Browser Binary
+BROWSER_CMD=""
+for cmd in chromium-browser chromium /usr/bin/chromium-browser /usr/bin/chromium; do
+    if command -v "$cmd" >/dev/null 2>&1 || [ -x "$cmd" ]; then
+        BROWSER_CMD="$cmd"
+        break
+    fi
+done
+
+if [ -z "$BROWSER_CMD" ]; then
+    echo "❌ ERROR: Chromium was not found on your system!"
+    echo "   Please run: sudo apt update && sudo apt install -y chromium-browser"
+    exit 1
 fi
 
-$BROWSER_CMD \
+echo "🌐 Launching browser executable: $BROWSER_CMD"
+
+# Run browser with Pi 3 (1GB RAM) memory safeguards
+"$BROWSER_CMD" \
     --kiosk \
     --noerrdialogs \
     --disable-infobars \
