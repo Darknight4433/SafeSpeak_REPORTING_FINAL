@@ -102,51 +102,56 @@ def synthesize_elevenlabs_b64(text: str, language: str = "en"):
     clean_text = re.sub(r'[*_#`~]', '', text).strip()
     return synthesize_local_edge_tts_b64(clean_text, language)
 
-def transcribe_elevenlabs_bytes(audio_bytes: bytes) -> str | None:
-    """Transcribes audio using ElevenLabs Scribe STT with automatic key rotation."""
-    global current_eleven_key_idx
+# Local Speech Recognition using faster-whisper (Base model, 100% offline & unlimited)
+whisper_model = None
+def get_whisper_model():
+    global whisper_model
+    if whisper_model is None:
+        try:
+            import faster_whisper
+            print("🚀 Loading Local Whisper STT model (base, CPU int8)...")
+            whisper_model = faster_whisper.WhisperModel("base", device="cpu", compute_type="int8")
+            print("✅ Local Whisper STT model ready for zero-latency offline transcription!")
+        except Exception as e:
+            print(f"⚠️ Could not load local faster_whisper model: {e}")
+            whisper_model = False
+    return whisper_model if whisper_model is not False else None
+
+def transcribe_local_whisper_bytes(audio_bytes: bytes, language: str = None) -> str | None:
+    """Transcribes audio 100% locally on laptop using Whisper without external keys or limits."""
     if not audio_bytes or len(audio_bytes) < 400:
         return None
-
-    boundary = '----WebKitFormBoundary7MA4YWxkTrZu0gW'
-    parts = [
-        b'--' + boundary.encode() + b'\r\nContent-Disposition: form-data; name="model_id"\r\n\r\nscribe_v1\r\n',
-        b'--' + boundary.encode() + b'\r\nContent-Disposition: form-data; name="file"; filename="audio.wav"\r\nContent-Type: audio/wav\r\n\r\n' + audio_bytes + b'\r\n',
-        b'--' + boundary.encode() + b'--\r\n'
-    ]
-    body = b''.join(parts)
-
-    for _ in range(len(ELEVEN_LABS_KEYS)):
-        key = ELEVEN_LABS_KEYS[current_eleven_key_idx]
-        url = "https://api.elevenlabs.io/v1/speech-to-text"
-        req = urllib.request.Request(
-            url,
-            data=body,
-            headers={
-                "xi-api-key": key,
-                "Content-Type": "multipart/form-data; boundary=" + boundary
-            },
-            method="POST"
+    model = get_whisper_model()
+    if not model:
+        return None
+    try:
+        import io
+        audio_stream = io.BytesIO(audio_bytes)
+        # Transcribe audio buffer
+        lang_code = "ml" if language == "ml" else None
+        segments, _ = model.transcribe(
+            audio_stream,
+            beam_size=1,
+            language=lang_code,
+            condition_on_previous_text=False
         )
-        try:
-            with urllib.request.urlopen(req, timeout=10) as res:
-                result = json.loads(res.read().decode("utf-8"))
-                raw_text = result.get("text", "").strip()
-                # Clean out audio event tags like [phone beeping], [laughter], [cough], [applause], [sigh]
-                clean_text = re.sub(r'\[.*?\]', '', raw_text).strip()
-                if clean_text:
-                    print(f"🎙️ [ElevenLabs STT] Transcribed: \"{clean_text}\"")
-                    return clean_text
-                elif raw_text:
-                    print(f"ℹ️ [ElevenLabs STT] Ambient audio tag ignored: \"{raw_text}\"")
-                return ""
-        except urllib.error.HTTPError as he:
-            print(f"⚠️ ElevenLabs STT key #{current_eleven_key_idx+1} status {he.code}. Rotating key...")
-            current_eleven_key_idx = (current_eleven_key_idx + 1) % len(ELEVEN_LABS_KEYS)
-        except Exception as e:
-            print(f"⚠️ ElevenLabs STT key #{current_eleven_key_idx+1} error: {e}. Rotating key...")
-            current_eleven_key_idx = (current_eleven_key_idx + 1) % len(ELEVEN_LABS_KEYS)
-    return None
+        full_text = " ".join([seg.text.strip() for seg in segments if seg.text]).strip()
+        clean_text = re.sub(r'\[.*?\]', '', full_text).strip()
+        if clean_text:
+            print(f"🎙️ [Local Whisper STT] Transcribed: \"{clean_text}\"")
+            return clean_text
+        return ""
+    except Exception as e:
+        print(f"⚠️ Local Whisper transcription error: {e}")
+        return None
+
+def transcribe_audio_bytes(audio_bytes: bytes, language: str = None) -> str | None:
+    """Zero-quota, reliable speech-to-text pipeline."""
+    # 1. Primary: 100% Local Whisper STT (instant, unlimited, no 401 errors)
+    text = transcribe_local_whisper_bytes(audio_bytes, language)
+    if text is not None:
+        return text
+    return ""
 
 # Server Configuration
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST_URL", "http://127.0.0.1:11434")
@@ -1123,7 +1128,9 @@ async def handle_websocket_client(websocket, active_model):
                     if msg_type == "student_audio":
                         raw_b64 = data.get("audio_base64", "")
                         audio_bytes = base64.b64decode(raw_b64) if raw_b64 else b""
-                        student_text = await asyncio.get_running_loop().run_in_executor(None, transcribe_elevenlabs_bytes, audio_bytes)
+                        student_text = await asyncio.get_running_loop().run_in_executor(
+                            None, transcribe_audio_bytes, audio_bytes, session_language
+                        )
                         if not student_text:
                             continue
                         await websocket.send(json.dumps({
