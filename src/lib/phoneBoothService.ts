@@ -77,8 +77,9 @@ export function getSavedPhoneBoothWsUrl(): string {
     if (saved) {
       return saved;
     }
-    if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
-      return 'ws://127.0.0.1:8765';
+    // If running in browser where hostname is a remote IP, use that IP for WS
+    if (typeof window !== 'undefined' && window.location.hostname && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+      return `ws://${window.location.hostname}:8765`;
     }
     return SECONDARY_LAPTOP_WS_URL;
   } catch {
