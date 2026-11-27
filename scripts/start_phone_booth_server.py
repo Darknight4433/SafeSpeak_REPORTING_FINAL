@@ -352,7 +352,7 @@ def generate_safespeak_empathy_sentences(conversation_history, session_language=
     """
     Intelligent child safeguarding dialog engine following the 3 Safeguarding Phases.
     Provides instant, zero-latency empathetic spoken responses without external LLM dependencies,
-    with native bilingual English and Malayalam support.
+    with native bilingual English and grammatically pristine Kerala Malayalam support.
     """
     user_turns = [msg.get("content", "").strip() for msg in conversation_history if msg.get("role") == "user"]
     if not user_turns:
@@ -365,17 +365,64 @@ def generate_safespeak_empathy_sentences(conversation_history, session_language=
 
     # Malayalam dialog branch
     if session_language == "ml" or bool(re.search(r'[\u0d00-\u0d7f]', last_text)):
-        if re.search(r'\b(വിട|ബൈ|മതി|തീർന്നു|ഇത്രയേ ഉള്ളൂ|പോവുകയാണ്|goodbye|bye)\b', last_text):
-            return ["നിങ്ങൾ പറഞ്ഞ കാര്യങ്ങൾ ഞാൻ സുരക്ഷിതമായി രേഖപ്പെടുത്തിയിട്ടുണ്ട്.", "ധൈര്യത്തോടെ സംസാരിച്ചതിന് ഒത്തിരി നന്ദി. സൂക്ഷ്മതയോടെ പോകുക, ഗുഡ്ബൈ!"]
-        if re.search(r'\b(malayalam|മലയാളം|മലയാളത്തിൽ)\b', last_text):
-            return ["തീർച്ചയായും! നമുക്ക് മലയാളത്തിൽ സംസാരിക്കാം.", "വിഷമിക്കേണ്ട, എന്താണ് ഉണ്ടായതെന്ന് സാവധാനം പറയാമോ?"]
-        if re.search(r'\b(ടീച്ചർ|മാഷ്|സാർ|ടീച്ചറെ|പ്രിൻസിപ്പൽ|staff|teacher)\b', last_text):
-            return ["വിഷമിക്കേണ്ട, സ്കൂളിലെ കാര്യങ്ങൾ ഞാൻ അതീവ രഹസ്യമായി രേഖപ്പെടുത്താം.", "എന്താണ് സംഭവിച്ചതെന്ന് പറയാമോ?"]
-        if re.search(r'\b(തല്ലി|അടിച്ചു|തള്ളി|കളിയാക്കി|ഭീഷണി|കരഞ്ഞു|bullying|bully)\b', last_text):
-            return ["ആരെങ്കിലും നിങ്ങളെ വേദനിപ്പിക്കുന്നത് ഒരിക്കലും ശരിയല്ല.", "ഇത് സ്കൂളിൽ വച്ചാണോ സംഭവിച്ചത്?"]
+        # Departure / goodbye
+        if re.search(r'\b(വിട|ബൈ|മതി|തീർന്നു|ഇത്രയേ ഉള്ളൂ|പോവുകയാണ്|goodbye|bye|that\'s all|thats all)\b', last_text):
+            return ["നിങ്ങൾ പറഞ്ഞ കാര്യങ്ങൾ ഞാൻ സുരക്ഷിതമായി കൗൺസിലർമാർക്ക് കൈമാറിയിട്ടുണ്ട്.", "ധൈര്യത്തോടെ സംസാരിച്ചതിന് ഒത്തിരി നന്ദി. സൂക്ഷ്മതയോടെ പോകുക, ഗുഡ്ബൈ!"]
+        
+        # Language selection turn (e.g. "Malayalam I like to talk in Malayalam", "മലയാളം")
+        if re.search(r'\b(malayalam|മലയാളം|മലയാളത്തിൽ|സംസാരിക്കാം|talk in malayalam|speak in malayalam|like to talk in malayalam)\b', last_text):
+            return [
+                "ശരി, നമുക്ക് മലയാളത്തിൽ സംസാരിക്കാം.",
+                "വിഷമിക്കേണ്ട, എന്താണ് ഉണ്ടായതെന്ന് സാവധാനം പറയാമോ?"
+            ]
+
+        # Teacher / Staff misconduct
+        if re.search(r'\b(ടീച്ചർ|മാഷ്|സാർ|ടീച്ചറെ|പ്രിൻസിപ്പൽ|staff|teacher|sir)\b', last_text):
+            return [
+                "വിഷമിക്കേണ്ട, നിങ്ങൾ പറഞ്ഞത് ഞാൻ അതീവ രഹസ്യമായി രേഖപ്പെടുത്താം.",
+                "ടീച്ചർ എന്താണ് ചെയ്തത് എന്ന് കൂടുതൽ പറയാമോ?"
+            ]
+
+        # Bullying / Physical harm
+        if re.search(r'\b(തല്ലി|അടിച്ചു|തള്ളി|കളിയാക്കി|ഭീഷണി|കരഞ്ഞു|bullying|bully|hit|beat|push|hurt)\b', last_text):
+            return [
+                "ആരും നിങ്ങളെ വേദനിപ്പിക്കാൻ പാടില്ല, നിങ്ങൾ ഇത് തുറന്നു പറഞ്ഞത് വളരെ നല്ല കാര്യമാണ്.",
+                "ഇത് സ്കൂളിൽ എവിടെ വെച്ചാണ് സംഭവിച്ചത്?"
+            ]
+
+        # Location mentioned (ക്ലാസ്സ്, ഗ്രൗണ്ട്, ബസ്, ഗേറ്റ്, ബാത്റൂം)
+        if re.search(r'\b(ക്ലാസ്|ക്ലാസ്സ്|ഗ്രൗണ്ട്|ബസ്|ബസ്സ്|ഗേറ്റ്|ബാത്റൂം|ടോയ്‌ലറ്റ്|ലൈബ്രറി|കാന്റീൻ|class|ground|bus|gate)\b', last_text):
+            return [
+                "ശരി, ഞാൻ ആ സ്ഥലം കുറിച്ചുവെച്ചിട്ടുണ്ട്.",
+                "നിങ്ങളുടെ പേര് ഇതിൽ ചേർക്കണോ, അതോ രഹസ്യമായി വെക്കണമോ?"
+            ]
+
+        # Name provided
+        if re.search(r'(?:എന്റെ പേര്|പേര്|name is|i am)\s+([^\s]+)', last_text):
+            return [
+                "പേര് പറഞ്ഞതിന് നന്ദി. ഇത് സ്കൂളിലെ കൗൺസിലർമാർക്ക് മാത്രമേ അറിയാൻ കഴിയൂ.",
+                "കൂടുതൽ എന്തെങ്കിലും പറയാനുണ്ടോ, അതോ കോൾ അവസാനിപ്പിക്കണമോ?"
+            ]
+
+        # Anonymity preference
+        if re.search(r'\b(രഹസ്യം|പേര് പറയണ്ട|പേര് വേണ്ട|anonymous|secret|private|no name)\b', last_text):
+            return [
+                "തീർച്ചയായും, നിങ്ങളുടെ പേര് പൂർണ്ണമായും രഹസ്യമായി സൂക്ഷിക്കും.",
+                "മറ്റെന്തെങ്കിലും കൗൺസിലർമാരെ അറിയിക്കാനുണ്ടോ?"
+            ]
+
+        # First turns inquiry
         if len(user_turns) <= 2:
-            return ["ഞാൻ ശ്രദ്ധിച്ചു കേൾക്കുന്നുണ്ട്.", "എന്ത് കാര്യമാണ് നിങ്ങളെ വിഷമിപ്പിക്കുന്നത്?"]
-        return ["നിങ്ങൾ പറഞ്ഞ കാര്യങ്ങൾ ഞാൻ രേഖപ്പെടുത്തിയിട്ടുണ്ട്.", "കൂടുതൽ എന്തെങ്കിലും പറയാനുണ്ടോ, അതോ കോൾ അവസാനിപ്പിക്കണമോ?"]
+            return ["ഞാൻ ശ്രദ്ധയോടെ കേൾക്കുന്നുണ്ട്.", "എന്ത് കാര്യമാണ് നിങ്ങളെ വിഷമിപ്പിക്കുന്നത്?"]
+
+        return ["നിങ്ങൾ പറഞ്ഞത് ഞാൻ ശ്രദ്ധയോടെ കുറിച്ചെടുത്തിട്ടുണ്ട്.", "കൂടുതൽ എന്തെങ്കിലും പറയാനുണ്ടോ, അതോ കോൾ അവസാനിപ്പിക്കണമോ?"]
+
+    # English language selection turn
+    if re.search(r'\b(english|talk in english|speak in english|like to talk in english)\b', last_text):
+        return [
+            "Sure, we can talk in English.",
+            "Take your time, what would you like to share?"
+        ]
 
     # Phase 4: Goodbye / Call Conclusion
     if re.search(r'\b(goodbye|good bye|bye|bye bye|that\'s all|thats all|i\'m done|im done|thank you bye|hang up|end call|that is all|nothing else|see you|got to go|have to go|done now|finish|no more|ready to finish)\b', last_text):
@@ -427,8 +474,79 @@ def generate_safespeak_empathy_sentences(conversation_history, session_language=
 
 def generate_structured_report_offline(conversation_history):
     """Generates comprehensive structured report JSON matching the official schema fast & accurately."""
-    user_turns = [msg.get("content", "").strip() for msg in conversation_history if msg.get("role") == "user"]
-    full_text = " ".join(user_turns)
+    LANGUAGE_CHOICE_PATTERN = r'\b(malayalam|english|hindi|tamil|മലയാളം|ഇംഗ്ലീഷ്|talk in malayalam|speak in malayalam|talk in english|speak in english|like to talk in malayalam|like to talk in english)\b'
+
+    incident_user_turns = []
+    for msg in conversation_history:
+        if msg.get("role") == "user":
+            txt = msg.get("content", "").strip()
+            cleaned = re.sub(LANGUAGE_CHOICE_PATTERN, '', txt, flags=re.IGNORECASE).strip()
+            if cleaned.lower() not in ('', 'i', 'i like to', 'i prefer', 'please', 'i want to'):
+                incident_user_turns.append(txt)
+
+    if not incident_user_turns:
+        return {
+            "category": "safety",
+            "severity_level": "L1",
+            "location": None,
+            "incident_timeframe": None,
+            "implicated_person": None,
+            "witnesses_present": None,
+            "target_population": None,
+            "substance_involved": None,
+            "safeguarding_recommendations": None,
+            "physical_harm_indicated": False,
+            "immediate_danger": False,
+            "is_ongoing": False,
+            "summary": "Call in progress — awaiting incident details",
+            "is_escalation_required": False,
+            "detected_emotion": "Listening",
+            "identity": {
+                "name": None,
+                "name_provided": False,
+                "anonymous_preference": "undecided",
+                "identity_confirmation": "not_confirmed"
+            },
+            "incident": {
+                "category": "safety",
+                "description": "Call in progress — awaiting incident details",
+                "frequency": "unknown",
+                "location": None,
+                "time_context": None,
+                "implicated_person": None,
+                "witnesses_present": None
+            },
+            "child_preferences": {
+                "wants_anonymity": None,
+                "wants_to_continue": True,
+                "preferred_support_person": None
+            },
+            "support_needs": {
+                "requested_help": None,
+                "concerns": []
+            },
+            "safety_flags": {
+                "urgent_review": False,
+                "immediate_danger": False,
+                "physical_harm_indicated": False,
+                "human_review_required": True
+            },
+            "escalation_decision": {
+                "reporting_pathway": "normal",
+                "reason": "Language selected; awaiting incident details"
+            },
+            "report_quality": {
+                "missing_fields": ["details"],
+                "ai_confidence": "initial_connection"
+            },
+            "evidence_layer": {
+                "name_evidence": "unknown",
+                "frequency_evidence": "unknown",
+                "location_evidence": "unknown"
+            }
+        }
+
+    full_text = " ".join(incident_user_turns)
     lower = full_text.lower()
 
     # 1. Child Name & Anonymity
@@ -447,6 +565,24 @@ def generate_structured_report_offline(conversation_history):
         loc = " / ".join(clean_gates)
     
     if not loc:
+        ml_places = {
+            "ക്ലാസ്": "Classroom",
+            "ക്ലാസ്സ്": "Classroom",
+            "ഗ്രൗണ്ട്": "School Ground",
+            "ബസ്": "School Bus",
+            "ബസ്സ്": "School Bus",
+            "ഗേറ്റ്": "School Gate",
+            "ബാത്റൂം": "Washroom",
+            "ടോയ്‌ലറ്റ്": "Washroom",
+            "ലൈബ്രറി": "Library",
+            "കാന്റീൻ": "Canteen"
+        }
+        for ml_term, eng_loc in ml_places.items():
+            if ml_term in lower:
+                loc = eng_loc
+                break
+
+    if not loc:
         common_places = [
             "behind the lockers", "locker room", "lockers", "gymnasium", "gym",
             "playground", "cafeteria", "canteen", "bus stop", "school bus", "bus",
@@ -462,7 +598,11 @@ def generate_structured_report_offline(conversation_history):
         m = re.search(r'\b(?:at|in|near|behind|around|by|inside|outside)\s+(?:the\s+)?([a-zA-Z0-9\s]{2,25}?)(?=[,\.\?!]|\b(?:today|yesterday|during|at|when|and|he|she|they|i|my|every)\b|$)', lower)
         if m:
             candidate = m.group(1).strip()
-            if candidate and len(candidate) > 2 and candidate not in ("school", "here", "it", "my", "me", "us"):
+            forbidden_candidates = {
+                "school", "here", "it", "my", "me", "us", "malayalam", "english", "hindi", "tamil",
+                "language", "secret", "private", "talk", "speaking", "speak", "trouble", "touch"
+            }
+            if candidate and len(candidate) > 2 and candidate.lower() not in forbidden_candidates:
                 loc = candidate.title()
 
     # 3. Timeframe Extraction (Upcoming Event Days & Schedules)
@@ -543,15 +683,20 @@ def generate_structured_report_offline(conversation_history):
         wit = "Classmates present"
 
     # 8. Physical Harm & Danger Indicators
-    harm = bool(re.search(r'\b(hit|punch|punched|kick|kicked|shove|shoved|pushed|push|fight|fought|hurt|bleed|bleeding|bruise|bruised|slap|slapped|beat)\b', lower))
-    danger = bool(re.search(r'\b(kill|knife|weapon|gun|emergency|die|suicide|hospital|right now|bleeding badly|drug dealing|dealers)\b', lower))
-    is_recurring = bool(re.search(r'\b(repeat|repeating|keeps|always|every day|everyday|again|often|constantly)\b', lower))
+    harm = bool(re.search(r'\b(hit|punch|punched|kick|kicked|shove|shoved|pushed|push|fight|fought|hurt|bleed|bleeding|bruise|bruised|slap|slapped|beat|തല്ലി|അടിച്ചു|തള്ളി|ഉപദ്രവിച്ചു|മുറിവേറ്റു|വേദനിപ്പിച്ചു|കരഞ്ഞു)\b', lower))
+    danger = bool(re.search(r'\b(kill|knife|weapon|gun|emergency|die|suicide|hospital|right now|bleeding badly|drug dealing|dealers|കൊല്ലും|കത്തി|ആശുപത്രി)\b', lower))
+    is_recurring = bool(re.search(r'\b(repeat|repeating|keeps|always|every day|everyday|again|often|constantly|എപ്പോഴും|വീണ്ടും|സ്ഥിരമായി)\b', lower))
     freq = "repeated" if is_recurring else ("one_time" if "today" in lower or "once" in lower else "unknown")
 
     # 9. Category & Escalation Determination
-    is_drug_substance = bool(substance is not None or re.search(r'\b(drug|drugs|dealing|dealer|dealers|weed|substance|pills)\b', lower))
+    is_drug_substance = bool(substance is not None or re.search(r'\b(drug|drugs|dealing|dealer|dealers|weed|substance|pills|മരുന്ന്|ഗുളിക|ലഹരി|കഞ്ചാവ്)\b', lower))
 
-    if imp and re.search(r'\b(mr\.|mrs\.|ms\.|miss|sir|coach|principal|teacher|dr\.)\b', imp.lower()) or re.search(r'\b(teacher|sir|madam|miss|coach|principal|staff)\b', lower):
+    is_teacher_mentioned = bool(
+        (imp and re.search(r'\b(mr\.|mrs\.|ms\.|miss|sir|coach|principal|teacher|dr\.|ടീച്ചർ|മാഷ്|സാർ)\b', imp.lower())) or
+        re.search(r'\b(teacher|sir|madam|miss|coach|principal|staff|ടീച്ചർ|മാഷ്|സാർ|ടീച്ചറെ|പ്രിൻസിപ്പൽ|മാഡം)\b', lower)
+    )
+
+    if is_teacher_mentioned:
         category = "teacher_involved"
         sev = "L3"
         esc_path = "higher_authority"
@@ -572,12 +717,12 @@ def generate_structured_report_offline(conversation_history):
         sev = "L2"
         esc_path = "normal"
         esc_reason = "Physical altercation or harm reported"
-    elif re.search(r'\b(bully|bullied|bullying|mock|tease|teasing|laugh|stole|money|name calling)\b', lower):
+    elif re.search(r'\b(bully|bullied|bullying|mock|tease|teasing|laugh|stole|money|name calling|കളിയാക്കി|റാഗിംഗ്|ഭീഷണിപ്പെടുത്തി|ഭീഷണി)\b', lower):
         category = "bullying"
         sev = "L2" if is_recurring else "L1"
         esc_path = "normal"
         esc_reason = "Peer bullying or interpersonal harassment"
-    elif re.search(r'\b(exam|test|marks|grade|grades|study|homework|stress|failing)\b', lower):
+    elif re.search(r'\b(exam|test|marks|grade|grades|study|homework|stress|failing|പരീക്ഷ|മാർക്ക്|പഠനം)\b', lower):
         category = "academic"
         sev = "L1"
         esc_path = "normal"
@@ -684,7 +829,9 @@ def stream_qwen_chat(conversation_history, active_model, session_language="en"):
     """
     Streams response tokens and yields completed sentences.
     """
-    if active_model == "safespeak-empathy-engine":
+    # For Malayalam, always use the dedicated native Malayalam dialogue engine
+    # (3B English-centric LLMs cannot generate grammatically correct Malayalam)
+    if active_model == "safespeak-empathy-engine" or session_language == "ml":
         for s in generate_safespeak_empathy_sentences(conversation_history, session_language):
             yield s
         return
@@ -744,7 +891,8 @@ def stream_qwen_chat(conversation_history, active_model, session_language="en"):
 def extract_slots_background(conversation_history, active_model):
     """Extracts structured safeguarding slots fast and accurately."""
     fast_report = generate_structured_report_offline(conversation_history)
-    if active_model == "safespeak-empathy-engine":
+    # If call is still in progress / language selection, do not query Ollama to prevent hallucinations
+    if fast_report.get("summary", "").startswith("Call in progress") or active_model == "safespeak-empathy-engine":
         return fast_report
 
     try:
@@ -771,11 +919,18 @@ def extract_slots_background(conversation_history, active_model):
             ollama_slots = json.loads(content)
             if isinstance(ollama_slots, dict):
                 inc = ollama_slots.get("incident") or {}
-                if inc.get("location"): fast_report["location"] = inc["location"]
+                if inc.get("location"):
+                    cand_loc = str(inc["location"]).strip()
+                    if cand_loc.lower() not in ("malayalam", "english", "hindi", "tamil", "language"):
+                        fast_report["location"] = cand_loc
                 if inc.get("time_context"): fast_report["incident_timeframe"] = inc["time_context"]
                 if inc.get("category"): fast_report["category"] = inc["category"]
                 if ollama_slots.get("implicated_person"): fast_report["implicated_person"] = ollama_slots["implicated_person"]
-                if ollama_slots.get("summary"): fast_report["summary"] = ollama_slots["summary"]
+                if ollama_slots.get("summary") and "malayalam" not in ollama_slots["summary"].lower():
+                    fast_report["summary"] = ollama_slots["summary"]
+                if ollama_slots.get("severity_level"): fast_report["severity_level"] = ollama_slots["severity_level"]
+                if ollama_slots.get("escalation_decision"): fast_report["escalation_decision"] = ollama_slots["escalation_decision"]
+                fast_report["incident"].update(inc)
                 if ollama_slots.get("severity_level"): fast_report["severity_level"] = ollama_slots["severity_level"]
                 if ollama_slots.get("escalation_decision"): fast_report["escalation_decision"] = ollama_slots["escalation_decision"]
                 fast_report["incident"].update(inc)
