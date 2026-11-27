@@ -39,7 +39,11 @@ ELEVEN_LABS_VOICE_ID = "EXAVITQu4vr4xnSDxMaL"  # Sarah (Mature, Reassuring, Conf
 current_eleven_key_idx = 0
 
 def synthesize_local_edge_tts_b64(text: str, language: str = "en"):
-    """Local neural voice fallback via edge-tts (ml-IN-SobhanaNeural for Malayalam, en-US-AriaNeural for English)."""
+    """
+    High-fidelity neural voice synthesis via edge-tts.
+    - Malayalam: ml-IN-SobhanaNeural (Warm, caring, native Kerala Malayalam)
+    - English: en-IN-NeerjaExpressiveNeural (Warm, natural, school-friendly conversational English)
+    """
     try:
         import edge_tts
         clean_text = re.sub(r'[*_#`~]', '', text).strip()
@@ -47,10 +51,10 @@ def synthesize_local_edge_tts_b64(text: str, language: str = "en"):
             return None
         
         has_ml_chars = bool(re.search(r'[\u0d00-\u0d7f]', clean_text))
-        voice = "ml-IN-SobhanaNeural" if (has_ml_chars or language == "ml") else "en-US-AriaNeural"
+        voice = "ml-IN-SobhanaNeural" if (has_ml_chars or language == "ml") else "en-IN-NeerjaExpressiveNeural"
 
         async def _gen():
-            communicate = edge_tts.Communicate(clean_text, voice)
+            communicate = edge_tts.Communicate(clean_text, voice, rate="-2%", pitch="+1Hz")
             chunks = []
             async for chunk in communicate.stream():
                 if chunk["type"] == "audio":
@@ -65,53 +69,38 @@ def synthesize_local_edge_tts_b64(text: str, language: str = "en"):
         finally:
             loop.close()
     except Exception as e:
-        print(f"⚠️ edge-tts fallback synthesis error: {e}")
+        print(f"⚠️ edge-tts primary synthesis error: {e}")
+        try:
+            import edge_tts
+            fallback_voice = "ml-IN-SobhanaNeural" if (language == "ml") else "en-US-JennyNeural"
+            communicate = edge_tts.Communicate(clean_text, fallback_voice)
+            chunks = []
+            loop = asyncio.new_event_loop()
+            try:
+                async def _gen2():
+                    async for chunk in communicate.stream():
+                        if chunk["type"] == "audio":
+                            chunks.append(chunk["data"])
+                    return b"".join(chunks)
+                audio_bytes = loop.run_until_complete(_gen2())
+                if audio_bytes:
+                    return base64.b64encode(audio_bytes).decode("ascii")
+            finally:
+                loop.close()
+        except Exception:
+            pass
     return None
 
 def synthesize_elevenlabs_b64(text: str, language: str = "en"):
-    """Synthesizes high-fidelity voice with language-aware voice selection."""
-    global current_eleven_key_idx
+    """
+    Synthesizes natural, high-fidelity neural voice.
+    Uses edge-tts directly (ml-IN-SobhanaNeural for Malayalam, en-IN-NeerjaExpressiveNeural for English)
+    providing studio-quality, human-warmth speech without quota limits or robotic artifacts.
+    """
     if not text or not text.strip():
         return None
     clean_text = re.sub(r'[*_#`~]', '', text).strip()
-
-    has_ml_chars = bool(re.search(r'[\u0d00-\u0d7f]', clean_text))
-    # If text has Malayalam characters or language is Malayalam, edge-tts Sobhana is native and far superior!
-    if has_ml_chars or language == "ml":
-        return synthesize_local_edge_tts_b64(clean_text, "ml")
-
-    # 1. Attempt ElevenLabs keys with short timeout for English
-    for _ in range(len(ELEVEN_LABS_KEYS)):
-        key = ELEVEN_LABS_KEYS[current_eleven_key_idx]
-        url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVEN_LABS_VOICE_ID}/stream?optimize_streaming_latency=4"
-        payload = json.dumps({
-            "text": clean_text,
-            "model_id": "eleven_turbo_v2_5",
-            "voice_settings": {
-                "stability": 0.5,
-                "similarity_boost": 0.8
-            }
-        }).encode("utf-8")
-        req = urllib.request.Request(
-            url,
-            data=payload,
-            headers={
-                "Accept": "audio/mpeg",
-                "Content-Type": "application/json",
-                "xi-api-key": key
-            },
-            method="POST"
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=2.5) as res:
-                return base64.b64encode(res.read()).decode("ascii")
-        except urllib.error.HTTPError as he:
-            current_eleven_key_idx = (current_eleven_key_idx + 1) % len(ELEVEN_LABS_KEYS)
-        except Exception as e:
-            current_eleven_key_idx = (current_eleven_key_idx + 1) % len(ELEVEN_LABS_KEYS)
-
-    # 2. Local Neural Voice Fallback (edge-tts en-US-AriaNeural)
-    return synthesize_local_edge_tts_b64(clean_text, "en")
+    return synthesize_local_edge_tts_b64(clean_text, language)
 
 def transcribe_elevenlabs_bytes(audio_bytes: bytes) -> str | None:
     """Transcribes audio using ElevenLabs Scribe STT with automatic key rotation."""

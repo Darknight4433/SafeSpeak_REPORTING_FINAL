@@ -285,14 +285,14 @@ export class PhoneBoothSessionManager {
 
       const utterance = new SpeechSynthesisUtterance(textToSpeak);
       this.currentUtterance = utterance; // Prevent V8 garbage collection mid-speech
-      utterance.rate = 0.95;
-      utterance.pitch = 1.05;
-      utterance.lang = 'en-US';
+      utterance.rate = 0.92;
+      utterance.pitch = 1.0;
+      utterance.lang = this.currentLanguage === 'ml' ? 'ml-IN' : 'en-US';
 
       const voices = window.speechSynthesis.getVoices();
       const preferred = voices.find(v => 
-        (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('Karen') || v.name.includes('Zira') || v.name.includes('Jenny') || v.name.includes('Aria')) 
-        && v.lang.startsWith('en')
+        (v.name.includes('Natural') || v.name.includes('Neural') || v.name.includes('Online') || v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('Jenny') || v.name.includes('Aria') || v.name.includes('Neerja')) 
+        && (this.currentLanguage === 'ml' ? v.lang.startsWith('ml') : v.lang.startsWith('en'))
       );
       if (preferred) utterance.voice = preferred;
 
