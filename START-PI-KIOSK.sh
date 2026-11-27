@@ -157,8 +157,8 @@ echo "🌐 Launching browser executable: $BROWSER_CMD"
     --disable-sync \
     --disable-translate \
     --no-first-run \
-    --disable-gpu \
-    --disable-software-rasterizer \
+    --js-flags="--max-old-space-size=256" \
+    --renderer-process-limit=2 \
     --unsafely-treat-insecure-origin-as-secure="http://localhost:8080,http://${LAPTOP_IP}:5173,http://${LAPTOP_IP}:8080" \
     --disk-cache-size=10485760 \
     --media-cache-size=10485760 \
