@@ -38,15 +38,19 @@ ELEVEN_LABS_KEYS = [
 ELEVEN_LABS_VOICE_ID = "EXAVITQu4vr4xnSDxMaL"  # Sarah (Mature, Reassuring, Confident - Premade Free Tier)
 current_eleven_key_idx = 0
 
-def synthesize_local_edge_tts_b64(text: str):
-    """Local neural voice fallback (en-US-AriaNeural) via edge-tts."""
+def synthesize_local_edge_tts_b64(text: str, language: str = "en"):
+    """Local neural voice fallback via edge-tts (ml-IN-SobhanaNeural for Malayalam, en-US-AriaNeural for English)."""
     try:
         import edge_tts
         clean_text = re.sub(r'[*_#`~]', '', text).strip()
         if not clean_text:
             return None
+        
+        has_ml_chars = bool(re.search(r'[\u0d00-\u0d7f]', clean_text))
+        voice = "ml-IN-SobhanaNeural" if (has_ml_chars or language == "ml") else "en-US-AriaNeural"
+
         async def _gen():
-            communicate = edge_tts.Communicate(clean_text, "en-US-AriaNeural")
+            communicate = edge_tts.Communicate(clean_text, voice)
             chunks = []
             async for chunk in communicate.stream():
                 if chunk["type"] == "audio":
@@ -64,14 +68,19 @@ def synthesize_local_edge_tts_b64(text: str):
         print(f"⚠️ edge-tts fallback synthesis error: {e}")
     return None
 
-def synthesize_elevenlabs_b64(text: str):
-    """Synthesizes high-fidelity voice via ElevenLabs Turbo v2.5 with key rotation and edge-tts neural fallback."""
+def synthesize_elevenlabs_b64(text: str, language: str = "en"):
+    """Synthesizes high-fidelity voice with language-aware voice selection."""
     global current_eleven_key_idx
     if not text or not text.strip():
         return None
     clean_text = re.sub(r'[*_#`~]', '', text).strip()
 
-    # 1. Attempt ElevenLabs keys with short timeout
+    has_ml_chars = bool(re.search(r'[\u0d00-\u0d7f]', clean_text))
+    # If text has Malayalam characters or language is Malayalam, edge-tts Sobhana is native and far superior!
+    if has_ml_chars or language == "ml":
+        return synthesize_local_edge_tts_b64(clean_text, "ml")
+
+    # 1. Attempt ElevenLabs keys with short timeout for English
     for _ in range(len(ELEVEN_LABS_KEYS)):
         key = ELEVEN_LABS_KEYS[current_eleven_key_idx]
         url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVEN_LABS_VOICE_ID}/stream?optimize_streaming_latency=4"
@@ -94,21 +103,15 @@ def synthesize_elevenlabs_b64(text: str):
             method="POST"
         )
         try:
-            with urllib.request.urlopen(req, timeout=3) as res:
+            with urllib.request.urlopen(req, timeout=2.5) as res:
                 return base64.b64encode(res.read()).decode("ascii")
         except urllib.error.HTTPError as he:
-            print(f"⚠️ ElevenLabs key #{current_eleven_key_idx+1} status {he.code}. Rotating key...")
             current_eleven_key_idx = (current_eleven_key_idx + 1) % len(ELEVEN_LABS_KEYS)
         except Exception as e:
             current_eleven_key_idx = (current_eleven_key_idx + 1) % len(ELEVEN_LABS_KEYS)
 
     # 2. Local Neural Voice Fallback (edge-tts en-US-AriaNeural)
-    print(f"🎙️ [Local Neural Voice] Synthesizing speech for: \"{clean_text[:50]}...\"")
-    local_b64 = synthesize_local_edge_tts_b64(clean_text)
-    if local_b64:
-        return local_b64
-
-    return None
+    return synthesize_local_edge_tts_b64(clean_text, "en")
 
 def transcribe_elevenlabs_bytes(audio_bytes: bytes) -> str | None:
     """Transcribes audio using ElevenLabs Scribe STT with automatic key rotation."""
@@ -345,17 +348,34 @@ def select_best_model(available_models):
             print(f"❌ Fallback pull failed: {e2}")
             return None
 
-def generate_safespeak_empathy_sentences(conversation_history):
+def generate_safespeak_empathy_sentences(conversation_history, session_language="en"):
     """
     Intelligent child safeguarding dialog engine following the 3 Safeguarding Phases.
-    Provides instant, zero-latency empathetic spoken responses without external LLM dependencies.
+    Provides instant, zero-latency empathetic spoken responses without external LLM dependencies,
+    with native bilingual English and Malayalam support.
     """
     user_turns = [msg.get("content", "").strip() for msg in conversation_history if msg.get("role") == "user"]
     if not user_turns:
+        if session_language == "ml":
+            return ["ഹലോ! ഞാൻ കേൾക്കാൻ ഇവിടെയുണ്ട്. വിഷമിക്കേണ്ട, എന്താണ് ഉണ്ടായതെന്ന് സാവധാനം പറയാമോ?"]
         return ["Hi. I'm here to listen. You can tell me anything that's been bothering you, at your own pace."]
     
     last_text = user_turns[-1].lower()
     full_text = " ".join(user_turns).lower()
+
+    # Malayalam dialog branch
+    if session_language == "ml" or bool(re.search(r'[\u0d00-\u0d7f]', last_text)):
+        if re.search(r'\b(വിട|ബൈ|മതി|തീർന്നു|ഇത്രയേ ഉള്ളൂ|പോവുകയാണ്|goodbye|bye)\b', last_text):
+            return ["നിങ്ങൾ പറഞ്ഞ കാര്യങ്ങൾ ഞാൻ സുരക്ഷിതമായി രേഖപ്പെടുത്തിയിട്ടുണ്ട്.", "ധൈര്യത്തോടെ സംസാരിച്ചതിന് ഒത്തിരി നന്ദി. സൂക്ഷ്മതയോടെ പോകുക, ഗുഡ്ബൈ!"]
+        if re.search(r'\b(malayalam|മലയാളം|മലയാളത്തിൽ)\b', last_text):
+            return ["തീർച്ചയായും! നമുക്ക് മലയാളത്തിൽ സംസാരിക്കാം.", "വിഷമിക്കേണ്ട, എന്താണ് ഉണ്ടായതെന്ന് സാവധാനം പറയാമോ?"]
+        if re.search(r'\b(ടീച്ചർ|മാഷ്|സാർ|ടീച്ചറെ|പ്രിൻസിപ്പൽ|staff|teacher)\b', last_text):
+            return ["വിഷമിക്കേണ്ട, സ്കൂളിലെ കാര്യങ്ങൾ ഞാൻ അതീവ രഹസ്യമായി രേഖപ്പെടുത്താം.", "എന്താണ് സംഭവിച്ചതെന്ന് പറയാമോ?"]
+        if re.search(r'\b(തല്ലി|അടിച്ചു|തള്ളി|കളിയാക്കി|ഭീഷണി|കരഞ്ഞു|bullying|bully)\b', last_text):
+            return ["ആരെങ്കിലും നിങ്ങളെ വേദനിപ്പിക്കുന്നത് ഒരിക്കലും ശരിയല്ല.", "ഇത് സ്കൂളിൽ വച്ചാണോ സംഭവിച്ചത്?"]
+        if len(user_turns) <= 2:
+            return ["ഞാൻ ശ്രദ്ധിച്ചു കേൾക്കുന്നുണ്ട്.", "എന്ത് കാര്യമാണ് നിങ്ങളെ വിഷമിപ്പിക്കുന്നത്?"]
+        return ["നിങ്ങൾ പറഞ്ഞ കാര്യങ്ങൾ ഞാൻ രേഖപ്പെടുത്തിയിട്ടുണ്ട്.", "കൂടുതൽ എന്തെങ്കിലും പറയാനുണ്ടോ, അതോ കോൾ അവസാനിപ്പിക്കണമോ?"]
 
     # Phase 4: Goodbye / Call Conclusion
     if re.search(r'\b(goodbye|good bye|bye|bye bye|that\'s all|thats all|i\'m done|im done|thank you bye|hang up|end call|that is all|nothing else|see you|got to go|have to go|done now|finish|no more|ready to finish)\b', last_text):
@@ -660,16 +680,20 @@ def generate_structured_report_offline(conversation_history):
         }
     }
 
-def stream_qwen_chat(conversation_history, active_model):
+def stream_qwen_chat(conversation_history, active_model, session_language="en"):
     """
     Streams response tokens and yields completed sentences.
     """
     if active_model == "safespeak-empathy-engine":
-        for s in generate_safespeak_empathy_sentences(conversation_history):
+        for s in generate_safespeak_empathy_sentences(conversation_history, session_language):
             yield s
         return
 
-    messages = [{"role": "system", "content": CONVERSATIONAL_SYSTEM_PROMPT}]
+    system_prompt = CONVERSATIONAL_SYSTEM_PROMPT
+    if session_language == "ml":
+        system_prompt += "\n\nCRITICAL LANGUAGE INSTRUCTION:\nThe student has chosen to speak in Malayalam. You MUST formulate your entire response in natural, warm, simple spoken Malayalam (മലയാളത്തിൽ സംസാരിക്കുക). Keep it gentle, 1-2 short sentences (15-25 words). Do NOT use complex Sanskritized Malayalam or English."
+
+    messages = [{"role": "system", "content": system_prompt}]
     messages.extend(conversation_history)
 
     payload = json.dumps({
@@ -765,6 +789,7 @@ async def handle_websocket_client(websocket, active_model):
     client_ip = websocket.remote_address[0] if hasattr(websocket, 'remote_address') else 'unknown'
     print(f"\n📞 [CALL CONNECTED] Phone Booth station connected from: {client_ip}")
 
+    session_language = "en"
     conversation_history = []
     session_slots = {
         "category": "other",
@@ -783,9 +808,9 @@ async def handle_websocket_client(websocket, active_model):
     current_turn_task = None
 
     try:
-        # Initial greeting: Phase 1 Welcoming the Child with clear end-of-call guidance
-        initial_greeting = "Hi. I'm here to listen. You can tell me anything that's been bothering you at your own pace. Names and details are completely optional. Whenever you are ready to finish, just say 'Goodbye' or 'That's all', and I will safely save your report for our counselors."
-        greeting_audio = await asyncio.get_running_loop().run_in_executor(None, synthesize_elevenlabs_b64, initial_greeting)
+        # Initial greeting: Phase 1 Welcoming the Child with bilingual language preference question
+        initial_greeting = "Hello! Would you prefer to talk in English or Malayalam? ഏത് ഭാഷയിലാണ് സംസാരിക്കാൻ ഇഷ്ടം?"
+        greeting_audio = await asyncio.get_running_loop().run_in_executor(None, synthesize_elevenlabs_b64, initial_greeting, "ml")
         
         await websocket.send(json.dumps({
             "type": "agent_stream_sentence",
@@ -797,9 +822,29 @@ async def handle_websocket_client(websocket, active_model):
         conversation_history.append({"role": "assistant", "content": initial_greeting})
 
         async def process_turn(student_text):
+            nonlocal session_language
             try:
                 print(f"🧒 Student: \"{student_text}\"")
                 conversation_history.append({"role": "user", "content": student_text})
+
+                # Check if student explicitly requests or starts speaking in Malayalam or English
+                is_ml_choice = bool(re.search(r'\b(malayalam|മലയാളം|മലയാളത്തിൽ|സംസാരിക്കാം)\b|[\u0d00-\u0d7f]', student_text, re.IGNORECASE))
+                is_en_choice = bool(re.search(r'\b(english|english please)\b', student_text, re.IGNORECASE))
+
+                if is_ml_choice and session_language != "ml":
+                    session_language = "ml"
+                    print("🌐 [LANGUAGE SWITCHED] Session switched to Malayalam (ml-IN)")
+                    await websocket.send(json.dumps({
+                        "type": "language_switched",
+                        "language": "ml"
+                    }))
+                elif is_en_choice and session_language != "en":
+                    session_language = "en"
+                    print("🌐 [LANGUAGE SWITCHED] Session switched to English (en-US)")
+                    await websocket.send(json.dumps({
+                        "type": "language_switched",
+                        "language": "en"
+                    }))
 
                 # Signal client that AI is processing turn
                 await websocket.send(json.dumps({"type": "agent_thinking"}))
@@ -810,7 +855,7 @@ async def handle_websocket_client(websocket, active_model):
 
                 def producer():
                     try:
-                        for s in stream_qwen_chat(conversation_history, active_model):
+                        for s in stream_qwen_chat(conversation_history, active_model, session_language):
                             loop.call_soon_threadsafe(queue.put_nowait, s)
                     except Exception as pe:
                         print(f"⚠️ Streaming producer error: {pe}")
@@ -825,7 +870,7 @@ async def handle_websocket_client(websocket, active_model):
                     if sentence is None:
                         break
                     full_reply_text += " " + sentence
-                    sentence_audio = await loop.run_in_executor(None, synthesize_elevenlabs_b64, sentence)
+                    sentence_audio = await loop.run_in_executor(None, synthesize_elevenlabs_b64, sentence, session_language)
                     await websocket.send(json.dumps({
                         "type": "agent_stream_sentence",
                         "sentence": sentence,
@@ -835,11 +880,11 @@ async def handle_websocket_client(websocket, active_model):
                     }))
 
                 conversation_history.append({"role": "assistant", "content": full_reply_text.strip()})
-                print(f"🤖 AI Spoke: \"{full_reply_text.strip()}\"")
+                print(f"🤖 AI Spoke ({session_language}): \"{full_reply_text.strip()}\"")
 
-                # Check for voice-activated goodbye / natural call conclusion
-                is_departure = bool(re.search(r'\b(goodbye|good bye|bye|bye bye|that\'s all|thats all|i\'m done|im done|thank you bye|hang up|end call|that is all|nothing else|see you|got to go|have to go|thank you that is all|i have to leave|done now|finish)\b', student_text, re.IGNORECASE))
-                ai_departure = bool(re.search(r'\b(goodbye|take care.*goodbye|farewell|bye now|safe day.*goodbye)\b', full_reply_text, re.IGNORECASE))
+                # Check for voice-activated goodbye / natural call conclusion (English and Malayalam)
+                is_departure = bool(re.search(r'\b(goodbye|good bye|bye|bye bye|that\'s all|thats all|i\'m done|im done|thank you bye|hang up|end call|that is all|nothing else|see you|got to go|have to go|thank you that is all|i have to leave|done now|finish|വിട|ബൈ|മതി|തീർന്നു|ഇത്രയേ ഉള്ളൂ|പോവുകയാണ്)\b', student_text, re.IGNORECASE))
+                ai_departure = bool(re.search(r'\b(goodbye|take care.*goodbye|farewell|bye now|safe day.*goodbye|സൂക്ഷ്മതയോടെ പോകുക.*ഗുഡ്ബൈ)\b', full_reply_text, re.IGNORECASE))
                 if is_departure or ai_departure:
                     print("👋 [VOICE HANG UP] Natural goodbye detected. Emitting auto-hangup packet.")
                     await websocket.send(json.dumps({
@@ -895,6 +940,17 @@ async def handle_websocket_client(websocket, active_model):
             try:
                 data = json.loads(message)
                 msg_type = data.get("type", "student_speech")
+
+                # Handle Client Language Switching Command
+                if msg_type == "set_language":
+                    lang = data.get("language", "en")
+                    session_language = "ml" if lang == "ml" else "en"
+                    print(f"🌐 [CLIENT SET LANGUAGE] Language explicitly set to: {session_language}")
+                    await websocket.send(json.dumps({
+                        "type": "language_switched",
+                        "language": session_language
+                    }))
+                    continue
 
                 # Handle Barge-In Interruption
                 if msg_type == "barge_in":

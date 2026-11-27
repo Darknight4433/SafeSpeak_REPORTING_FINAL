@@ -73,6 +73,8 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
   const [lastAgentSpeech, setLastAgentSpeech] = useState('');
   const [interimStudentText, setInterimStudentText] = useState('');
   const [lastStudentSpeech, setLastStudentSpeech] = useState('');
+  const [currentLanguage, setCurrentLanguage] = useState<'en' | 'ml'>('en');
+  const currentLanguageRef = useRef<'en' | 'ml'>('en');
 
   const transcriptContainerRef = useRef<HTMLDivElement | null>(null);
   const durationTimerRef = useRef<number | null>(null);
@@ -217,6 +219,16 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
           agentSpeakingStartTimeRef.current = Date.now();
         }
       }
+      if (state.currentLanguage) {
+        setCurrentLanguage(state.currentLanguage);
+        currentLanguageRef.current = state.currentLanguage;
+        if (recognitionRef.current) {
+          try {
+            recognitionRef.current.lang = state.currentLanguage === 'ml' ? 'ml-IN' : 'en-US';
+            console.log(`🌐 WebSpeech STT language switched to: ${recognitionRef.current.lang}`);
+          } catch {}
+        }
+      }
       if (state.currentEmotion) setCurrentEmotion(state.currentEmotion);
       if (state.inquiryState) setInquiryState(state.inquiryState);
       if (state.extractedSlots) setExtractedSlots(prev => ({ ...prev, ...state.extractedSlots }));
@@ -302,7 +314,8 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
     const rec = new SpeechRec();
     rec.continuous = true;
     rec.interimResults = true;
-    rec.lang = 'en-US';
+    rec.lang = currentLanguageRef.current === 'ml' ? 'ml-IN' : 'en-US';
+    recognitionRef.current = rec;
 
     const isEchoOfAgentSpeech = (heard: string): boolean => {
       if (!heard || !heard.trim()) return false;
@@ -513,6 +526,19 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
     return `${mins.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
+  // Language switcher for Student Kiosk (English & Malayalam)
+  const handleToggleLanguage = (lang: 'en' | 'ml') => {
+    setCurrentLanguage(lang);
+    currentLanguageRef.current = lang;
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.lang = lang === 'ml' ? 'ml-IN' : 'en-US';
+      } catch {}
+    }
+    phoneBoothManager.setLanguage(lang);
+    toast.success(lang === 'ml' ? 'മലയാളം ഭാഷ തിരഞ്ഞെടുത്തു' : 'Switched to English');
+  };
+
   // Dynamic Typography based on accessibility text size
   const transcriptTextClass =
     textSize === 'xlarge' ? 'text-lg leading-relaxed' :
@@ -559,6 +585,28 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
 
           {/* Accessibility & Settings Controls */}
           <div className="flex items-center gap-1.5 sm:gap-2">
+            {/* Language Switcher Chips: English / Malayalam */}
+            <div className="flex items-center rounded-lg border bg-muted/40 p-0.5">
+              <Button
+                variant={currentLanguage === 'en' ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={() => handleToggleLanguage('en')}
+                className={`h-7 px-2 text-xs font-semibold rounded-md ${currentLanguage === 'en' ? 'bg-background shadow-xs font-bold text-foreground' : 'text-muted-foreground'}`}
+                title="Switch voice to English"
+              >
+                🇬🇧 English
+              </Button>
+              <Button
+                variant={currentLanguage === 'ml' ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={() => handleToggleLanguage('ml')}
+                className={`h-7 px-2 text-xs font-semibold rounded-md ${currentLanguage === 'ml' ? 'bg-background shadow-xs font-bold text-foreground' : 'text-muted-foreground'}`}
+                title="മലയാളത്തിൽ സംസാരിക്കാൻ തിരഞ്ഞെടുക്കുക"
+              >
+                🇮🇳 മലയാളം
+              </Button>
+            </div>
+
             {callState === 'active' && (
               <Badge variant="secondary" className="font-mono text-sm px-3 py-1 bg-background/80 border">
                 ⏱️ {formatTimer(callDuration)}

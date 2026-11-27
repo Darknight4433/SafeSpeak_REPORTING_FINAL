@@ -38,6 +38,7 @@ export interface PhoneBoothState {
   shouldAutoHangup?: boolean;
   isStudentListening: boolean;
   currentEmotion: string;
+  currentLanguage?: 'en' | 'ml';
   categoryGuess: string;
   inquiryState: string;
   turns: PhoneBoothTurn[];
@@ -122,6 +123,7 @@ export class PhoneBoothSessionManager {
   private ttsKeepAliveTimer: any = null;
   private currentKeyIndex: number = 0;
   private pendingHangup: boolean = false;
+  public currentLanguage: 'en' | 'ml' = 'en';
 
   public subscribe(fn: (state: Partial<PhoneBoothState>) => void) {
     this.listeners.push(fn);
@@ -577,9 +579,31 @@ export class PhoneBoothSessionManager {
   }
 
   /**
+   * Explicitly sets session language (English or Malayalam)
+   */
+  public setLanguage(lang: 'en' | 'ml') {
+    this.currentLanguage = lang;
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      try {
+        this.ws.send(JSON.stringify({ type: 'set_language', language: lang }));
+      } catch {}
+    }
+    this.notify({ currentLanguage: lang });
+  }
+
+  /**
    * Phase 3 Streaming Message Handler
    */
   private async handleIncomingMessage(data: any) {
+    // Language Switched Notification from Voice Server
+    if (data.type === 'language_switched') {
+      const newLang = data.language === 'ml' ? 'ml' : 'en';
+      this.currentLanguage = newLang;
+      console.log('🌐 [Client Notification] Language switched to:', newLang);
+      this.notify({ currentLanguage: newLang });
+      return;
+    }
+
     // 0. Transcribed student speech from server-side ElevenLabs Scribe STT
     if (data.type === 'student_speech_transcribed') {
       const studentText = (data.text || '').trim();
