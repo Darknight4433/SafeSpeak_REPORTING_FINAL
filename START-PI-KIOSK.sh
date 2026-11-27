@@ -138,6 +138,7 @@ echo "🌐 Launching browser executable: $BROWSER_CMD"
 # Run browser with Pi 3 (1GB RAM) memory safeguards
 "$BROWSER_CMD" \
     --kiosk \
+    --password-store=basic \
     --noerrdialogs \
     --disable-infobars \
     --check-for-update-interval=31536000 \
