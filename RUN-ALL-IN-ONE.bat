@@ -13,18 +13,15 @@ echo.
 cd /d "%~dp0"
 
 :: Ensure local Python installations take precedence over WindowsApps stub
-if exist "%LOCALAPPDATA%\Python\pythoncore-3.14-64\python.exe" set "PATH=%LOCALAPPDATA%\Python\pythoncore-3.14-64;%PATH%"
-if exist "%LOCALAPPDATA%\Python\bin\python.exe" set "PATH=%LOCALAPPDATA%\Python\bin;%PATH%"
-if exist "%LOCALAPPDATA%\Programs\Python\Python314\python.exe" set "PATH=%LOCALAPPDATA%\Programs\Python\Python314;%PATH%"
-if exist "%LOCALAPPDATA%\Programs\Python\Python313\python.exe" set "PATH=%LOCALAPPDATA%\Programs\Python\Python313;%PATH%"
-if exist "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" set "PATH=%LOCALAPPDATA%\Programs\Python\Python312;%PATH%"
-if exist "%LOCALAPPDATA%\Programs\Python\Python311\python.exe" set "PATH=%LOCALAPPDATA%\Programs\Python\Python311;%PATH%"
+set "PYTHON_EXE=python"
+if exist "%LOCALAPPDATA%\Python\pythoncore-3.14-64\python.exe" set "PYTHON_EXE=%LOCALAPPDATA%\Python\pythoncore-3.14-64\python.exe"
+if exist "%LOCALAPPDATA%\Programs\Python\Python314\python.exe" set "PYTHON_EXE=%LOCALAPPDATA%\Programs\Python\Python314\python.exe"
+if exist "%PYTHON_EXE%" for %%F in ("%PYTHON_EXE%") do set "PATH=%%~dpF;%PATH%"
 
 :: 1. Check Python
-where python >nul 2>nul
+"%PYTHON_EXE%" --version >nul 2>nul
 if %ERRORLEVEL% NEQ 0 (
-    echo [ERROR] Python 3 was not found in your PATH!
-    echo Please install Python 3 from https://www.python.org/ and check "Add python to PATH".
+    echo [ERROR] Python 3 was not found!
     pause
     exit /b 1
 )
@@ -87,10 +84,10 @@ if %ERRORLEVEL% NEQ 0 (
 :: 6. Verify Python Dependencies
 echo.
 echo [3/5] Verifying Python libraries (websockets, edge-tts)...
-python -c "import websockets, edge_tts" >nul 2>nul
+"%PYTHON_EXE%" -c "import websockets, edge_tts" >nul 2>nul
 if %ERRORLEVEL% NEQ 0 (
     echo       [*] Installing websockets and edge-tts for Python...
-    python -m pip install websockets edge-tts -q
+    "%PYTHON_EXE%" -m pip install websockets edge-tts -q
 )
 echo       [OK] Python dependencies verified.
 
@@ -98,7 +95,7 @@ echo       [OK] Python dependencies verified.
 echo.
 echo [4/5] Launching SafeSpeak AI Voice Server (Port 8765)...
 set "SAFESPEAK_WS_PORT=8765"
-start "SafeSpeak AI Voice Server [Port 8765]" cmd /k "color 0A && title SafeSpeak AI Voice Server [Port 8765] && python scripts/start_phone_booth_server.py"
+start "SafeSpeak AI Voice Server [Port 8765]" cmd /k "color 0A && title SafeSpeak AI Voice Server [Port 8765] && ""%PYTHON_EXE%"" scripts\start_phone_booth_server.py"
 timeout /t 2 /nobreak >nul
 
 :: 8. Launch Vite Web Server on 0.0.0.0:5173

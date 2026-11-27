@@ -10,15 +10,15 @@ echo Target Latency: ^<150ms per spoken turn (100+ tokens/sec)
 echo =====================================================================
 echo.
 
-if exist "%LOCALAPPDATA%\Python\pythoncore-3.14-64\python.exe" set "PATH=%LOCALAPPDATA%\Python\pythoncore-3.14-64;%PATH%"
-if exist "%LOCALAPPDATA%\Python\bin\python.exe" set "PATH=%LOCALAPPDATA%\Python\bin;%PATH%"
+set "PYTHON_EXE=python"
+if exist "%LOCALAPPDATA%\Python\pythoncore-3.14-64\python.exe" set "PYTHON_EXE=%LOCALAPPDATA%\Python\pythoncore-3.14-64\python.exe"
+if exist "%LOCALAPPDATA%\Programs\Python\Python314\python.exe" set "PYTHON_EXE=%LOCALAPPDATA%\Programs\Python\Python314\python.exe"
+if exist "%PYTHON_EXE%" for %%F in ("%PYTHON_EXE%") do set "PATH=%%~dpF;%PATH%"
 
 :: 1. Check Python
-where python >nul 2>nul
+"%PYTHON_EXE%" --version >nul 2>nul
 if %ERRORLEVEL% NEQ 0 (
-    echo [ERROR] Python 3 was not found in your PATH.
-    echo Please install Python 3 from https://www.python.org/
-    echo Make sure to check "Add python.exe to PATH" during installation.
+    echo [ERROR] Python 3 was not found!
     pause
     exit /b 1
 )
@@ -102,7 +102,7 @@ echo =====================================================================
 echo.
 
 :: 8. Launch Python Voice Server
-python "%~dp0scripts\start_phone_booth_server.py"
+"%PYTHON_EXE%" "%~dp0scripts\start_phone_booth_server.py"
 
 if %ERRORLEVEL% NEQ 0 (
     echo.
