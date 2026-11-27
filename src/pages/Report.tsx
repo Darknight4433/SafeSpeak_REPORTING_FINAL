@@ -122,9 +122,31 @@ const Report = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [recognition, setRecognition] = useState<any>(null);
 
-  // Success Confirmation Modal
+  // Success Confirmation Modal with auto-dismiss back to Phone Booth for Kiosk
   const [successModalOpen, setSuccessModalOpen] = useState(false);
   const [submittedReportId, setSubmittedReportId] = useState<string>('');
+  const [modalCountdown, setModalCountdown] = useState<number>(6);
+
+  useEffect(() => {
+    let timer: any = null;
+    if (successModalOpen) {
+      setModalCountdown(6);
+      timer = setInterval(() => {
+        setModalCountdown((prev) => {
+          if (prev <= 1) {
+            clearInterval(timer);
+            setSuccessModalOpen(false);
+            setReportingMode('booth');
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [successModalOpen]);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -961,6 +983,11 @@ const Report = () => {
                 <p className="text-[11px] text-muted-foreground pt-1">
                   Keep this ID safe if you want to follow up on your report later.
                 </p>
+                <div className="pt-2">
+                  <Badge variant="outline" className="text-[11px] bg-primary/10 text-primary border-primary/20">
+                    Returning to Phone Booth in {modalCountdown}s...
+                  </Badge>
+                </div>
               </div>
 
               <DialogFooter className="flex flex-col sm:flex-row gap-2 pt-2">
