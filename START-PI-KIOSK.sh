@@ -84,15 +84,19 @@ elif [ -f "$DIR/laptop_ip.txt" ]; then
 fi
 
 # Priority 3: Try resolving mDNS or known laptop IPs
-if [ -z "$LAPTOP_IP" ] || [ "$LAPTOP_IP" = "auto" ] || [ "$LAPTOP_IP" = "192.168.1.9" ]; then
-    if ping -c 1 -W 2 192.168.1.2 >/dev/null 2>&1; then
-        LAPTOP_IP="192.168.1.2"
+if [ -z "$LAPTOP_IP" ] || [ "$LAPTOP_IP" = "auto" ]; then
+    if ping -c 1 -W 2 192.168.1.50 >/dev/null 2>&1; then
+        LAPTOP_IP="192.168.1.50"
     elif ping -c 1 -W 2 desktop-5tk1mc6.local >/dev/null 2>&1; then
         LAPTOP_IP="desktop-5tk1mc6.local"
-    elif ping -c 1 -W 2 192.168.1.9 >/dev/null 2>&1; then
-        LAPTOP_IP="192.168.1.9"
-    else
+    elif ping -c 1 -W 2 192.168.1.3 >/dev/null 2>&1; then
+        LAPTOP_IP="192.168.1.3"
+    elif ping -c 1 -W 2 192.168.1.4 >/dev/null 2>&1; then
+        LAPTOP_IP="192.168.1.4"
+    elif ping -c 1 -W 2 192.168.1.2 >/dev/null 2>&1; then
         LAPTOP_IP="192.168.1.2"
+    else
+        LAPTOP_IP="192.168.1.50"
     fi
 fi
 
