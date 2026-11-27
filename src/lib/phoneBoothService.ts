@@ -49,7 +49,7 @@ export interface PhoneBoothState {
   error: string | null;
 }
 
-export const SECONDARY_LAPTOP_WS_URL = 'ws://192.168.1.9:8765';
+export const SECONDARY_LAPTOP_WS_URL = 'ws://192.168.1.2:8765';
 export const MDNS_LAPTOP_WS_URL = 'ws://desktop-5tk1mc6.local:8765';
 const DEFAULT_WS_URL = SECONDARY_LAPTOP_WS_URL;
 const STORAGE_KEY_WS = 'safespeak_phone_booth_ws';
