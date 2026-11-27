@@ -74,7 +74,7 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
   const [interimStudentText, setInterimStudentText] = useState('');
   const [lastStudentSpeech, setLastStudentSpeech] = useState('');
 
-  const turnsEndRef = useRef<HTMLDivElement | null>(null);
+  const transcriptContainerRef = useRef<HTMLDivElement | null>(null);
   const durationTimerRef = useRef<number | null>(null);
   const countdownTimerRef = useRef<number | null>(null);
   const speechSilenceTimeoutRef = useRef<number | null>(null);
@@ -129,10 +129,13 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
     };
   }, [serverUrl, callState]);
 
-  // Auto-scroll transcript to bottom
+  // Auto-scroll transcript strictly inside its container (prevents window scrolling down to bottom bar)
   useEffect(() => {
-    turnsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [turns, isAgentSpeaking]);
+    if (transcriptContainerRef.current) {
+      const el = transcriptContainerRef.current;
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [turns, currentAgentSpeakingText, interimStudentText]);
 
   // Duration Timer
   useEffect(() => {
@@ -877,7 +880,10 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
                   <span>Audio is not permanently stored • Plaintext reviewed by counselors</span>
                 </div>
 
-                <div className={`h-64 overflow-y-auto p-4 rounded-xl border bg-muted/20 space-y-3 font-sans ${transcriptTextClass}`}>
+                <div 
+                  ref={transcriptContainerRef}
+                  className={`h-64 overflow-y-auto p-4 rounded-xl border bg-muted/20 space-y-3 font-sans ${transcriptTextClass}`}
+                >
                   {turns.length === 0 ? (
                     <div className="h-full flex items-center justify-center text-sm text-muted-foreground italic">
                       SafeSpeak AI is preparing warm greeting...
@@ -942,7 +948,6 @@ export const PhoneBooth: React.FC<PhoneBoothProps> = ({ onSwitchToTyping, onRepo
                       )}
                     </>
                   )}
-                  <div ref={turnsEndRef} />
                 </div>
               </div>
 
