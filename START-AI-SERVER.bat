@@ -81,7 +81,7 @@ curl -s http://127.0.0.1:11434/api/tags >nul 2>nul
 if %ERRORLEVEL% NEQ 0 (
     echo       🚀 Starting Ollama background engine on 0.0.0.0:11434...
     start /b ollama serve >nul 2>nul
-    timeout /t 3 /nobreak >nul
+    ping -n 4 127.0.0.1 >nul
 )
 echo       ✅ Ollama engine running on 0.0.0.0:11434.
 

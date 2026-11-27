@@ -77,7 +77,7 @@ if %ERRORLEVEL% NEQ 0 (
     if %ERRORLEVEL% NEQ 0 (
         echo       [*] Starting Ollama background engine...
         start /b ollama serve >nul 2>nul
-        timeout /t 2 /nobreak >nul
+        ping -n 3 127.0.0.1 >nul
     )
     echo       [OK] Ollama engine ready on http://127.0.0.1:11434
 )
@@ -97,7 +97,7 @@ echo.
 echo [4/5] Launching SafeSpeak AI Voice Server (Port 8765)...
 set "SAFESPEAK_WS_PORT=8765"
 start "SafeSpeak AI Voice Server [Port 8765]" cmd /k "%PYTHON_EXE% scripts\start_phone_booth_server.py"
-timeout /t 2 /nobreak >nul
+ping -n 3 127.0.0.1 >nul
 
 :: 8. Launch Vite Web Server on 0.0.0.0:5173
 echo.
@@ -107,7 +107,7 @@ start "SafeSpeak Web Server [Port 5173]" cmd /k "npm run dev -- --host 0.0.0.0 -
 :: Wait for servers to spin up
 echo.
 echo Waiting for servers to initialize...
-timeout /t 3 /nobreak >nul
+ping -n 4 127.0.0.1 >nul
 
 :: 9. Display Network Connection Info
 echo.
