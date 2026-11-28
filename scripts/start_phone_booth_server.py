@@ -161,15 +161,31 @@ def get_whisper_model():
             import ctranslate2
             has_cuda = ctranslate2.get_cuda_device_count() > 0
             if has_cuda:
-                print("⚡ Loading Local Whisper STT model onto NVIDIA GeForce RTX GPU (CUDA float16)...")
-                whisper_model = faster_whisper.WhisperModel("base", device="cuda", compute_type="float16")
-                print("🚀 [GPU ACCELERATED] Whisper STT running on RTX 3050 CUDA (<100ms latency)!")
+                try:
+                    print("⚡ Loading Local Whisper STT model onto NVIDIA GeForce RTX GPU (CUDA float16)...")
+                    cand = faster_whisper.WhisperModel("base", device="cuda", compute_type="float16")
+                    # Pre-flight check: Verify cublas DLL can actually perform matrix math
+                    import io, wave
+                    bio = io.BytesIO()
+                    with wave.open(bio, "wb") as wf:
+                        wf.setnchannels(1)
+                        wf.setsampwidth(2)
+                        wf.setframerate(16000)
+                        wf.writeframes(b"\x00" * 3200)
+                    bio.seek(0)
+                    list(cand.transcribe(bio, beam_size=1)[0])
+                    whisper_model = cand
+                    print("🚀 [GPU ACCELERATED] Whisper STT active on RTX 3050 CUDA (<100ms latency)!")
+                except Exception as cuda_err:
+                    print(f"ℹ️ CUDA runtime library missing ({cuda_err}). Running Whisper STT on CPU int8.")
+                    whisper_model = faster_whisper.WhisperModel("base", device="cpu", compute_type="int8")
+                    print("✅ Local Whisper STT model ready on CPU int8.")
             else:
                 print("🚀 Loading Local Whisper STT model (base, CPU int8)...")
                 whisper_model = faster_whisper.WhisperModel("base", device="cpu", compute_type="int8")
                 print("✅ Local Whisper STT model ready on CPU.")
         except Exception as e:
-            print(f"⚠️ CUDA Whisper init failed, falling back to CPU: {e}")
+            print(f"⚠️ Whisper init issue, using CPU: {e}")
             try:
                 import faster_whisper
                 whisper_model = faster_whisper.WhisperModel("base", device="cpu", compute_type="int8")
@@ -178,36 +194,50 @@ def get_whisper_model():
     return whisper_model if whisper_model is not False else None
 
 def transcribe_local_whisper_bytes(audio_bytes: bytes, language: str = None) -> str | None:
-    """Transcribes audio with ultra-low latency on RTX 3050 GPU (<100ms)."""
+    """Transcribes audio with zero-latency offline Whisper engine and automatic CPU fallback."""
+    global whisper_model
     if not audio_bytes or len(audio_bytes) < 400:
         return None
     model = get_whisper_model()
     if not model:
         return None
-    try:
-        import io
-        audio_stream = io.BytesIO(audio_bytes)
-        t_start = time.time()
-        # Transcribe audio buffer with VAD filter to skip trailing silence
-        lang_code = "ml" if language == "ml" else None
-        segments, _ = model.transcribe(
-            audio_stream,
-            beam_size=1,
-            language=lang_code,
-            condition_on_previous_text=False,
-            vad_filter=True,
-            vad_parameters=dict(min_silence_duration_ms=300)
-        )
-        full_text = " ".join([seg.text.strip() for seg in segments if seg.text]).strip()
-        clean_text = re.sub(r'\[.*?\]', '', full_text).strip()
-        elapsed_ms = (time.time() - t_start) * 1000
-        if clean_text:
-            print(f"🎙️ [RTX CUDA Whisper STT] Transcribed in {elapsed_ms:.0f}ms: \"{clean_text}\"")
-            return clean_text
-        return ""
-    except Exception as e:
-        print(f"⚠️ Local Whisper transcription error: {e}")
-        return None
+    
+    import io
+    lang_code = "ml" if language == "ml" else None
+
+    # Try transcription with automatic fallback from CUDA to CPU if cublas DLL is missing
+    for attempt in range(2):
+        try:
+            audio_stream = io.BytesIO(audio_bytes)
+            t_start = time.time()
+            segments, _ = model.transcribe(
+                audio_stream,
+                beam_size=1,
+                language=lang_code,
+                condition_on_previous_text=False,
+                vad_filter=True,
+                vad_parameters=dict(min_silence_duration_ms=300)
+            )
+            full_text = " ".join([seg.text.strip() for seg in segments if seg.text]).strip()
+            clean_text = re.sub(r'\[.*?\]', '', full_text).strip()
+            elapsed_ms = (time.time() - t_start) * 1000
+            if clean_text:
+                print(f"🎙️ [Whisper STT] Transcribed in {elapsed_ms:.0f}ms: \"{clean_text}\"")
+                return clean_text
+            return ""
+        except Exception as e:
+            err_str = str(e)
+            if ("cublas" in err_str.lower() or "cuda" in err_str.lower() or "not found" in err_str.lower()) and attempt == 0:
+                print(f"⚠️ CUDA runtime missing ({e}). Instantly switching to high-speed CPU int8 mode...")
+                import faster_whisper
+                whisper_model = faster_whisper.WhisperModel("base", device="cpu", compute_type="int8")
+                model = whisper_model
+                print("✅ [CPU FALLBACK ACTIVE] Whisper STT switched to CPU int8.")
+                continue
+            else:
+                print(f"⚠️ Local Whisper transcription error: {e}")
+                return None
+    return None
 
 def transcribe_audio_bytes(audio_bytes: bytes, language: str = None) -> str | None:
     """Zero-quota, reliable speech-to-text pipeline."""
