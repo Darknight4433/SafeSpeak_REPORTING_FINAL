@@ -415,34 +415,25 @@ export class PhoneBoothSessionManager {
    * Auto-probes candidate URLs in parallel and returns the first responding server address
    */
   public async findActiveServerUrl(preferredUrl?: string): Promise<string> {
-    const directUrl = preferredUrl || getSavedPhoneBoothWsUrl();
-    // If the user explicitly provided an external IP for the secondary laptop, connect directly!
-    if (directUrl && !directUrl.includes('localhost') && !directUrl.includes('127.0.0.1')) {
-      let clean = directUrl.trim();
-      if (!clean.startsWith('ws://') && !clean.startsWith('wss://')) clean = `ws://${clean}`;
-      console.log(`🎯 Directly targeting configured AI Voice Server on other laptop: ${clean}`);
-      savePhoneBoothWsUrl(clean);
-      return clean;
-    }
-
     const isLocalhostHost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
     const hostName = typeof window !== 'undefined' ? window.location.hostname : '';
     const dynamicHostWs = (hostName && hostName !== 'localhost' && hostName !== '127.0.0.1')
       ? `ws://${hostName}:8765`
       : null;
 
+    // Prioritize localhost/LAN host immediately so local test connects in <5ms
     const candidates = Array.from(new Set([
-      'ws://192.168.1.50:8765',
-      'ws://desktop-5tk1mc6.local:8765',
-      preferredUrl,
-      dynamicHostWs,
-      'ws://192.168.1.4:8765',
-      'ws://192.168.1.3:8765',
-      'ws://192.168.1.2:8765',
-      getSavedPhoneBoothWsUrl(),
-      'ws://10.94.141.76:8765',
-      'ws://192.168.10.39:8765',
       ...(isLocalhostHost ? ['ws://127.0.0.1:8765', 'ws://localhost:8765'] : []),
+      dynamicHostWs,
+      preferredUrl,
+      getSavedPhoneBoothWsUrl(),
+      'ws://127.0.0.1:8765',
+      'ws://localhost:8765',
+      'ws://desktop-5tk1mc6.local:8765',
+      'ws://192.168.174.76:8765',
+      'ws://192.168.10.39:8765',
+      'ws://192.168.1.50:8765',
+      'ws://192.168.1.4:8765',
     ].filter(Boolean) as string[]));
 
     return new Promise((resolve) => {
@@ -457,7 +448,7 @@ export class PhoneBoothSessionManager {
           const t = setTimeout(() => {
             try { socket.close(); } catch {}
             onFail();
-          }, 1500);
+          }, 1200);
 
           socket.onopen = () => {
             if (!resolved) {
@@ -822,12 +813,33 @@ export class PhoneBoothSessionManager {
           extractedSlots: offlineSlots
         });
 
-        // Check if student said goodbye
+        // Check for farewell / call completion
         const isGoodbye = /\b(goodbye|good bye|bye|bye bye|that's all|thats all|i'm done|im done|thank you bye|hang up|end call|that is all|nothing else|see you|got to go|have to go|done now|finish)\b/i.test(text);
+
+        const lowerText = text.toLowerCase().trim();
+        const isGreeting = /\b(hello|hi|hey|good morning|good afternoon|good evening|can you hear me|hear me|are you there|anyone there|test|testing|hello hello)\b/i.test(lowerText);
+        const isMalayalamChoice = /\b(malayalam|മലയാളം|മലയാളത്തിൽ|സംസാരിക്കാം|talk in malayalam|speak in malayalam)\b/i.test(lowerText);
+        const isEnglishChoice = /\b(english|talk in english|speak in english)\b/i.test(lowerText);
 
         let aiReply = "";
         if (isGoodbye) {
-          aiReply = "Thank you for sharing this with me. Your report has been safely noted for our counselors, and you did wonderfully by speaking up today. Take care, and goodbye!";
+          aiReply = this.currentLanguage === 'ml'
+            ? "നിങ്ങൾ പറഞ്ഞ കാര്യങ്ങൾ ഞാൻ സുരക്ഷിതമായി കൗൺസിലർമാർക്ക് കൈമാറിയിട്ടുണ്ട്. ധൈര്യത്തോടെ സംസാരിച്ചതിന് ഒത്തിരി നന്ദി. സൂക്ഷ്മതയോടെ പോകുക, ഗുഡ്ബൈ!"
+            : "Thank you for sharing this with me. Your report has been safely noted for our counselors, and you did wonderfully by speaking up today. Take care, and goodbye!";
+        } else if (isMalayalamChoice) {
+          this.currentLanguage = 'ml';
+          aiReply = "ശരി, നമുക്ക് മലയാളത്തിൽ സംസാരിക്കാം. വിഷമിക്കേണ്ട, എന്താണ് ഉണ്ടായതെന്ന് സാവധാനം പറയാമോ?";
+        } else if (isEnglishChoice && this.turnCounter <= 3) {
+          this.currentLanguage = 'en';
+          aiReply = "Sure! We can talk in English. Take your time, what would you like to share?";
+        } else if (isGreeting && this.turnCounter <= 3) {
+          aiReply = this.currentLanguage === 'ml'
+            ? "ഹലോ! ഞാൻ വ്യക്തമായി കേൾക്കുന്നുണ്ട്. വിഷമിക്കേണ്ട, എന്താണ് ഉണ്ടായതെന്ന് സാവധാനം പറയാമോ?"
+            : "Hello! I can hear you clearly. I am here to listen. Take your time, what would you like to share?";
+        } else if (this.turnCounter <= 2 && (localAnalysis.category === 'other' || localAnalysis.category === 'greeting')) {
+          aiReply = this.currentLanguage === 'ml'
+            ? "ഞാൻ ശ്രദ്ധയോടെ കേൾക്കുന്നുണ്ട്. എന്താണ് സംഭവിച്ചതെന്ന് സാവധാനം പറയാമോ?"
+            : "I am listening carefully. Please take your time and tell me what happened.";
         } else {
           const supp = getSupportiveMessageAndFeelings(localAnalysis.category, localAnalysis.risk_level);
           aiReply = supp.message ? `${supp.message} Take your time—is there anything else you would like to share?` : "I hear you, and thank you for trusting me with that. What you are experiencing matters, and I am listening. Is there anything else you'd like to share?";
