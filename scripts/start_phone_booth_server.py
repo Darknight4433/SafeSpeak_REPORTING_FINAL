@@ -440,12 +440,22 @@ DEPARTURE_REGEX = r'(goodbye|good\s*bye|bye|bye\s*bye|that\'?s\s*all|thats\s*all
 
 def is_acoustic_echo(heard_text: str, conversation_history: list) -> bool:
     """Detects if speech heard by the microphone is an acoustic echo of recent AI speech."""
-    if not heard_text or len(heard_text.strip()) < 2:
+    if not heard_text or len(heard_text.strip()) < 1:
         return True
-    heard_clean = re.sub(r'[^\w\s]', ' ', heard_text.lower()).strip()
+    
+    clean_text = heard_text.strip().lower()
+    
+    # Always allow language selections and standard short conversational answers!
+    if clean_text in ("english", "malayalam", "മലയാളം", "മലയാളത്തിൽ", "yes", "no", "hello", "hi", "hey", "sure", "okay", "ok", "help"):
+        return False
+        
+    heard_clean = re.sub(r'[^\w\s]', ' ', clean_text).strip()
     heard_words = [w for w in heard_clean.split() if len(w) > 1]
-    if not heard_words:
-        return True
+    
+    # Short responses (1 to 3 words) are genuine student speech, never echo!
+    if len(heard_words) <= 3:
+        return False
+
     recent_agent_texts = [
         msg.get("content", "").lower() 
         for msg in conversation_history[-3:] 
@@ -453,14 +463,18 @@ def is_acoustic_echo(heard_text: str, conversation_history: list) -> bool:
     ]
     if not recent_agent_texts:
         return False
+        
     combined_agent_text = " ".join(recent_agent_texts)
     combined_clean = re.sub(r'[^\w\s]', ' ', combined_agent_text)
-    if heard_clean in combined_clean or (len(heard_clean) > 15 and combined_clean in heard_clean):
+    
+    # Substring echo check only for long sentences (> 4 words and > 25 chars)
+    if len(heard_words) >= 4 and len(heard_clean) > 25 and heard_clean in combined_clean:
         return True
+        
     agent_words = set(re.findall(r'\b\w+\b', combined_clean))
     overlap = sum(1 for w in heard_words if w in agent_words)
     ratio = overlap / len(heard_words)
-    return ratio >= 0.45
+    return ratio >= 0.70
 
 def generate_safespeak_empathy_sentences(conversation_history, session_language="en"):
     """
