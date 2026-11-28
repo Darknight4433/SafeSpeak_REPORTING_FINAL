@@ -26,11 +26,6 @@ export interface ReportOutput {
 
 export function getSupportiveMessageAndFeelings(category: string, risk_level: string): { message: string; feelings: string[] } {
     switch (category) {
-        case 'greeting':
-            return {
-                feelings: ['Heard', 'Comfortable'],
-                message: "Hello! I am here and listening carefully. Take your time, what would you like to share?",
-            };
         case 'teacher_involved':
             return {
                 feelings: ['Scared', 'Intimidated', 'Unfairly Treated'],
@@ -262,12 +257,7 @@ export async function analyzeReportDemo(text: string): Promise<ReportOutput> {
 
     if (kw.matched) {
         switch (kw.patternId) {
-            case 'greeting':
-            return {
-                feelings: ['Heard', 'Comfortable'],
-                message: "Hello! I am here and listening carefully. Take your time, what would you like to share?",
-            };
-        case 'teacher_involved':
+            case 'teacher_involved':
                 risk_level = 'L3';
                 route_to = 'higher_authority';
                 risk_score = 0.95;
@@ -319,11 +309,6 @@ export async function analyzeReportDemo(text: string): Promise<ReportOutput> {
         route_to = 'counselor_review';
         risk_score = 0.35;
         category = 'emotional_distress';
-    } else if (/\b(hello|hi|hey|good morning|good afternoon|good evening|can you hear me|hear me|anyone there|test|testing)\b/i.test(lowered)) {
-        risk_level = 'L0';
-        route_to = 'conversation';
-        risk_score = 0.0;
-        category = 'greeting';
     } else if (/\b(joke|kidding|lol|haha|prank|test|asdf)\b/i.test(lowered)) {
         risk_level = 'L0';
         route_to = 'filtered';

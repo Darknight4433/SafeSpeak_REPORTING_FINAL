@@ -281,11 +281,6 @@ CORE CONVERSATIONAL SAFEGUARDING LOGIC:
 5. NATURAL CONCLUSION:
    - When you have sufficient information to prepare a report, or when the child indicates they want to stop (e.g. "goodbye", "bye", "that's all", "I'm done", "thank you bye"):
      Acknowledge warmly: "Thank you for sharing this with me. Your report has been noted safely, and you did wonderfully by speaking up today. Take care, and goodbye!"
-
-6. GREETINGS & CASUAL FIRST TURNS:
-   - If the student simply opens with "hello", "hi", "hey", or checks "can you hear me?":
-     Respond warmly and directly to their greeting: "Hello! I can hear you clearly and I am here to listen. Take your time, what would you like to share today?"
-   - Never treat a greeting like a completed incident or ask "is there anything else" on a greeting.
 """
 
 EXTRACTION_SYSTEM_PROMPT = """You are the SafeSpeak Safeguarding Data Analyst.
@@ -530,10 +525,6 @@ def generate_safespeak_empathy_sentences(conversation_history, session_language=
                 "മറ്റെന്തെങ്കിലും കൗൺസിലർമാരെ അറിയിക്കാനുണ്ടോ?"
             ]
 
-        # Greeting / Mic check
-        if re.search(r'\b(ഹലോ|കേൾക്കാമോ|hello|hi|hey|can you hear me|hear me|anyone there)\b', last_text):
-            return ["ഹലോ! ഞാൻ വ്യക്തമായി കേൾക്കുന്നുണ്ട്.", "വിഷമിക്കേണ്ട, എന്താണ് ഉണ്ടായതെന്ന് സാവധാനം പറയാമോ?"]
-
         # First turns inquiry
         if len(user_turns) <= 2:
             return ["ഞാൻ ശ്രദ്ധയോടെ കേൾക്കുന്നുണ്ട്.", "എന്ത് കാര്യമാണ് നിങ്ങളെ വിഷമിപ്പിക്കുന്നത്?"]
@@ -546,10 +537,6 @@ def generate_safespeak_empathy_sentences(conversation_history, session_language=
             "Sure, we can talk in English.",
             "Take your time, what would you like to share?"
         ]
-
-    # Greeting / Mic check
-    if re.search(r'\b(hello|hi|hey|good morning|good afternoon|good evening|can you hear me|hear me|anyone there|test|testing|hello hello)\b', last_text):
-        return ["Hello! I can hear you clearly and I am here to listen.", "Take your time, what would you like to share today?"]
 
     # Phase 4: Goodbye / Call Conclusion
     if re.search(DEPARTURE_REGEX, last_text, re.IGNORECASE):
@@ -593,7 +580,7 @@ def generate_safespeak_empathy_sentences(conversation_history, session_language=
 
     # General gentle inquiry
     if len(user_turns) <= 2:
-        return ["I hear you, and I am listening carefully.", "Please take your time and tell me what happened."]
+        return ["I hear you, and I am listening carefully.", "Has this been bothering you for a while?"]
     elif not child_name:
         return ["Thank you for trusting me with this.", "Would you prefer to share your name on this report, or keep it anonymous?"]
     else:
@@ -1090,18 +1077,34 @@ async def handle_websocket_client(websocket, active_model):
     current_turn_task = None
 
     try:
-        # Initial greeting: Phase 1 Welcoming the Child with bilingual language preference question
-        initial_greeting = "Hello! Would you prefer to talk in English or Malayalam? ഏത് ഭാഷയിലാണ് സംസാരിക്കാൻ ഇഷ്ടം?"
-        greeting_audio = await asyncio.get_running_loop().run_in_executor(None, synthesize_elevenlabs_b64, initial_greeting, "ml")
-        
+        # Initial greeting: Phase 1 Welcoming the Child with pristine bilingual language options
+        # 1. English welcoming sentence rendered naturally by ElevenLabs Sarah
+        greeting_en = "Hello! Would you prefer to speak in English or Malayalam?"
+        audio_en = await asyncio.get_running_loop().run_in_executor(
+            None, synthesize_elevenlabs_b64, greeting_en, "en"
+        )
         await websocket.send(json.dumps({
             "type": "agent_stream_sentence",
-            "sentence": initial_greeting,
-            "audio_base64": greeting_audio,
+            "sentence": greeting_en,
+            "audio_base64": audio_en,
+            "detected_emotion": "Listening",
+            "is_final_turn": False
+        }))
+
+        # 2. Malayalam welcoming sentence rendered natively by Edge-TTS Sobhana
+        greeting_ml = "ഏത് ഭാഷയിലാണ് സംസാരിക്കാൻ കൂടുതൽ താല്പര്യം?"
+        audio_ml = await asyncio.get_running_loop().run_in_executor(
+            None, synthesize_elevenlabs_b64, greeting_ml, "ml"
+        )
+        await websocket.send(json.dumps({
+            "type": "agent_stream_sentence",
+            "sentence": greeting_ml,
+            "audio_base64": audio_ml,
             "detected_emotion": "Listening",
             "is_final_turn": True
         }))
-        conversation_history.append({"role": "assistant", "content": initial_greeting})
+
+        conversation_history.append({"role": "assistant", "content": f"{greeting_en} {greeting_ml}"})
 
         async def process_turn(student_text):
             nonlocal session_language
