@@ -202,9 +202,23 @@ export class PhoneBoothSessionManager {
     const item = this.speechQueue.shift()!;
     const textToSpeak = item.text;
 
+    // Immediately cancel any lingering browser SpeechSynthesis so voices never overlap
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      try { window.speechSynthesis.cancel(); } catch {}
+    }
+
+    // Stop any previously playing audio element
+    if (this.currentAudio) {
+      try {
+        this.currentAudio.pause();
+        this.currentAudio.currentTime = 0;
+      } catch {}
+      this.currentAudio = null;
+    }
+
     this.notify({ isAgentSpeaking: true, currentAgentSentence: textToSpeak });
 
-    // 1. If server streamed pre-synthesized ElevenLabs HD Audio:
+    // 1. Primary: Server streamed pre-synthesized neural HD Audio (ElevenLabs Sarah / Edge-TTS Sobhana)
     if (item.audioBase64) {
       try {
         const audio = new Audio('data:audio/mpeg;base64,' + item.audioBase64);
@@ -223,27 +237,6 @@ export class PhoneBoothSessionManager {
         audio.onerror = () => {
           this.currentAudio = null;
           this.isProcessingQueue = false;
-          this.playBrowserTTSFallback(textToSpeak);
-        };
-
-        await audio.play();
-        return;
-      } catch (e) {
-        console.warn('Direct ElevenLabs audio playback error, falling back:', e);
-      }
-    }
-
-    // 2. Client-side fetch from ElevenLabs with working Sarah premade voice
-    try {
-      const audioUrl = await this.fetchElevenLabsAudio(textToSpeak);
-      if (audioUrl) {
-        const audio = new Audio(audioUrl);
-        this.currentAudio = audio;
-
-        audio.onended = () => {
-          URL.revokeObjectURL(audioUrl);
-          this.currentAudio = null;
-          this.isProcessingQueue = false;
           if (this.speechQueue.length > 0) {
             this.processSpeechQueue();
           } else {
@@ -251,21 +244,22 @@ export class PhoneBoothSessionManager {
           }
         };
 
-        audio.onerror = () => {
-          URL.revokeObjectURL(audioUrl);
-          this.currentAudio = null;
-          this.isProcessingQueue = false;
-          this.playBrowserTTSFallback(textToSpeak);
-        };
-
         await audio.play();
         return;
+      } catch (e) {
+        console.warn('Direct neural audio playback issue:', e);
+        this.currentAudio = null;
+        this.isProcessingQueue = false;
+        if (this.speechQueue.length > 0) {
+          this.processSpeechQueue();
+        } else {
+          this.onSpeechFinished();
+        }
+        return;
       }
-    } catch (e) {
-      console.warn('ElevenLabs playback error, using fallback:', e);
     }
 
-    // 3. Failure-Safe Fallback to Browser SpeechSynthesis
+    // 2. Fallback to Browser SpeechSynthesis ONLY when no server audio is available
     this.playBrowserTTSFallback(textToSpeak);
   }
 
